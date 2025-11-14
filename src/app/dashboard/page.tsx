@@ -6,20 +6,27 @@ import Link from 'next/link';
 import { Activity, Heart, Zap, Moon } from 'lucide-react';
 import ReadinessCard from '@/components/ReadinessCard';
 import MetricCard from '@/components/MetricCard';
+import HRVTrendChart from '@/components/charts/HRVTrendChart';
+import TrainingLoadChart from '@/components/charts/TrainingLoadChart';
+import ACWRChart from '@/components/charts/ACWRChart';
+import ReadinessScoreTrend from '@/components/charts/ReadinessScoreTrend';
 import { ReadinessScore } from '@/lib/calculations/readiness';
 
 export default function DashboardPage() {
   const { data: session } = useSession();
   const [readiness, setReadiness] = useState<ReadinessScore | null>(null);
   const [metrics, setMetrics] = useState<any>(null);
+  const [chartData, setChartData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [activeChartTab, setActiveChartTab] = useState<'hrv' | 'load' | 'acwr' | 'readiness'>('hrv');
 
   useEffect(() => {
     async function fetchData() {
       try {
-        const [readinessRes, metricsRes] = await Promise.all([
+        const [readinessRes, metricsRes, chartsRes] = await Promise.all([
           fetch('/api/readiness'),
           fetch('/api/metrics?days=30'),
+          fetch('/api/metrics/charts?days=30'),
         ]);
 
         if (readinessRes.ok) {
@@ -30,6 +37,11 @@ export default function DashboardPage() {
         if (metricsRes.ok) {
           const metricsData = await metricsRes.json();
           setMetrics(metricsData);
+        }
+
+        if (chartsRes.ok) {
+          const charts = await chartsRes.json();
+          setChartData(charts);
         }
       } catch (error) {
         console.error('Error fetching dashboard data:', error);
@@ -98,6 +110,76 @@ export default function DashboardPage() {
           >
             Upload Data
           </Link>
+        </div>
+      )}
+
+      {/* Charts Section */}
+      {chartData && (chartData.hrv.data.length > 0 || chartData.trainingLoad.data.length > 0 || chartData.readiness.data.length > 0) && (
+        <div className="bg-white rounded-lg shadow p-6 border border-gray-200">
+          <h3 className="text-xl font-semibold mb-4">Training Trends</h3>
+
+          {/* Tab Navigation */}
+          <div className="flex space-x-2 mb-6 border-b border-gray-200">
+            <button
+              onClick={() => setActiveChartTab('hrv')}
+              className={`px-4 py-2 font-medium text-sm border-b-2 transition ${
+                activeChartTab === 'hrv'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              HRV Trend
+            </button>
+            <button
+              onClick={() => setActiveChartTab('load')}
+              className={`px-4 py-2 font-medium text-sm border-b-2 transition ${
+                activeChartTab === 'load'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Training Load
+            </button>
+            <button
+              onClick={() => setActiveChartTab('acwr')}
+              className={`px-4 py-2 font-medium text-sm border-b-2 transition ${
+                activeChartTab === 'acwr'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              ACWR
+            </button>
+            <button
+              onClick={() => setActiveChartTab('readiness')}
+              className={`px-4 py-2 font-medium text-sm border-b-2 transition ${
+                activeChartTab === 'readiness'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Readiness History
+            </button>
+          </div>
+
+          {/* Chart Display */}
+          <div>
+            {activeChartTab === 'hrv' && (
+              <HRVTrendChart
+                data={chartData.hrv.data}
+                average={chartData.hrv.average}
+              />
+            )}
+            {activeChartTab === 'load' && (
+              <TrainingLoadChart data={chartData.trainingLoad.data} />
+            )}
+            {activeChartTab === 'acwr' && (
+              <ACWRChart data={chartData.trainingLoad.data} />
+            )}
+            {activeChartTab === 'readiness' && (
+              <ReadinessScoreTrend data={chartData.readiness.data} />
+            )}
+          </div>
         </div>
       )}
 
