@@ -1,0 +1,134 @@
+// This is your Prisma schema file
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Users and Authentication
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String?
+  passwordHash String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Profile data
+  age          Int?
+  gender       Gender?
+  weight       Float?    // kg
+
+  // Relations
+  metrics      Metric[]
+  workouts     Workout[]
+  plans        TrainingPlan[]
+}
+
+// Training Metrics
+model Metric {
+  id        String     @id @default(cuid())
+  userId    String
+  date      DateTime
+  type      MetricType
+  value     Float
+  unit      String?
+  metadata  Json?
+  createdAt DateTime   @default(now())
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+  @@index([userId, type, date])
+}
+
+// Workouts
+model Workout {
+  id          String      @id @default(cuid())
+  userId      String
+  planId      String?
+  date        DateTime
+  sport       Sport
+  type        WorkoutType
+  name        String
+  duration    Int?        // minutes
+  distance    Float?      // km
+  structure   Json        // Detailed workout structure
+  completed   Boolean     @default(false)
+  completedAt DateTime?
+  notes       String?
+  createdAt   DateTime    @default(now())
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan        TrainingPlan? @relation(fields: [planId], references: [id], onDelete: SetNull)
+
+  @@index([userId, date])
+}
+
+// Training Plans
+model TrainingPlan {
+  id          String     @id @default(cuid())
+  userId      String
+  name        String
+  description String?
+  startDate   DateTime
+  endDate     DateTime
+  sport       Sport
+  goal        String?
+  weeks       Int
+  planData    Json       // Structured plan data
+  status      PlanStatus @default(ACTIVE)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workouts    Workout[]
+}
+
+// Enums
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum Sport {
+  RUNNING
+  CYCLING
+  SWIMMING
+  TRIATHLON
+  OTHER
+}
+
+enum MetricType {
+  VO2MAX
+  HRV
+  RESTING_HR
+  MAX_HR
+  FTP
+  TRAINING_LOAD
+  RECOVERY_TIME
+  READINESS_SCORE
+  SLEEP_HOURS
+  STRESS_LEVEL
+}
+
+enum WorkoutType {
+  EASY
+  TEMPO
+  INTERVAL
+  LONG
+  RECOVERY
+  RACE
+  STRENGTH
+}
+
+enum PlanStatus {
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
