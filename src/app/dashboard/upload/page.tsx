@@ -67,7 +67,7 @@ export default function UploadPage() {
             setUploading(false);
           }
         },
-        error: (error) => {
+        error: (error: Error) => {
           console.error('CSV parse error:', error);
           setMessage('Failed to parse CSV file');
           setMessageType('error');
