@@ -24,9 +24,10 @@ model User {
   weight       Float?    // kg
 
   // Relations
-  metrics      Metric[]
-  workouts     Workout[]
-  plans        TrainingPlan[]
+  metrics       Metric[]
+  workouts      Workout[]
+  plans         TrainingPlan[]
+  conversations Conversation[]
 }
 
 // Training Metrics
@@ -89,6 +90,32 @@ model TrainingPlan {
   workouts    Workout[]
 }
 
+// AI Coaching Conversations
+model Conversation {
+  id        String    @id @default(cuid())
+  userId    String
+  title     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages Message[]
+
+  @@index([userId, createdAt])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  role           MessageRole
+  content        String       @db.Text
+  createdAt      DateTime     @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
+
 // Enums
 enum Gender {
   MALE
@@ -131,4 +158,10 @@ enum PlanStatus {
   ACTIVE
   COMPLETED
   ARCHIVED
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
 }

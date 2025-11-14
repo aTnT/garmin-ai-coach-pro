@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { signOut, useSession } from 'next-auth/react';
-import { Activity, Calendar, Upload, LogOut, User, Route, Settings } from 'lucide-react';
+import { Activity, Calendar, Upload, LogOut, User, Route, Settings, MessageCircle } from 'lucide-react';
 
 export default function Navbar() {
   const pathname = usePathname();
@@ -13,6 +13,7 @@ export default function Navbar() {
     { href: '/dashboard', label: 'Dashboard', icon: Activity },
     { href: '/dashboard/plans', label: 'Training Plans', icon: Route },
     { href: '/dashboard/workouts', label: 'Workouts', icon: Calendar },
+    { href: '/dashboard/chat', label: 'AI Coach', icon: MessageCircle },
     { href: '/dashboard/upload', label: 'Upload Data', icon: Upload },
     { href: '/dashboard/settings', label: 'Settings', icon: Settings },
   ];
