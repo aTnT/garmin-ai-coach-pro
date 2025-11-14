@@ -22,6 +22,7 @@ An AI-powered endurance training platform that provides personalized coaching, a
 - **Workout Tracking**: Complete history with filtering, completion tracking, and notes
 
 ### 📈 Data & Analytics
+- **Garmin Connect Sync**: Direct OAuth integration for automatic activity & metrics sync 🔗
 - **Interactive Charts**: HRV trends, Training Load, ACWR (injury risk), Readiness Score
 - **Flexible CSV Import**: Auto-detect and map Garmin Connect and Strava exports
 - **Smart Data Mapping**: Handles various column names and formats automatically
@@ -51,6 +52,11 @@ src/
 │   ├── api/                  # API endpoints
 │   │   ├── auth/             # Authentication (signup, NextAuth)
 │   │   ├── chat/             # AI coaching chat ✨
+│   │   ├── garmin/           # Garmin Connect OAuth & sync 🔗
+│   │   │   ├── connect/      # Initiate OAuth flow
+│   │   │   ├── callback/     # OAuth callback handler
+│   │   │   ├── sync/         # Sync activities & metrics
+│   │   │   └── disconnect/   # Remove OAuth token
 │   │   ├── metrics/          # Training metrics & charts
 │   │   ├── plans/            # Training plan generation
 │   │   ├── workouts/         # Workout management
@@ -63,7 +69,7 @@ src/
 │       ├── plans/            # Training plans (list, detail, create)
 │       ├── workouts/         # Workout history & details
 │       ├── upload/           # Data upload with preview
-│       └── settings/         # User profile settings
+│       └── settings/         # User profile settings + Garmin 🔗
 ├── components/               # Reusable React components
 │   ├── charts/              # Chart components
 │   ├── Navbar.tsx
@@ -76,6 +82,7 @@ src/
 │   │   └── plans.ts          # Plan periodization (800+ lines)
 │   ├── csv-mapper.ts         # CSV format detection & mapping
 │   ├── seed-data.ts          # Sample data generation
+│   ├── garmin-oauth.ts       # Garmin OAuth 1.0a & API (400+ lines) 🔗
 │   ├── auth.ts               # NextAuth configuration
 │   └── prisma.ts             # Prisma client
 └── prisma/
@@ -129,6 +136,11 @@ NEXTAUTH_SECRET="your-generated-secret-here"
 # AI Integration (REQUIRED for AI Coach chat)
 ANTHROPIC_API_KEY="sk-ant-your-key-here"
 
+# Garmin Connect OAuth (OPTIONAL - for automatic data sync)
+GARMIN_CONSUMER_KEY="your-garmin-consumer-key-here"
+GARMIN_CONSUMER_SECRET="your-garmin-consumer-secret-here"
+GARMIN_CALLBACK_URL="http://localhost:3000/api/garmin/callback"
+
 # App
 NODE_ENV="development"
 ```
@@ -166,6 +178,7 @@ Visit [http://localhost:3000](http://localhost:3000) and create an account!
 - **TrainingPlan**: Periodized multi-week plans with weekly progression
 - **Conversation**: AI coaching chat sessions
 - **Message**: Chat messages (USER/ASSISTANT/SYSTEM roles)
+- **OAuthToken**: Secure storage for external OAuth tokens (Garmin, Strava) 🔗
 
 ### Key Relationships
 ```
@@ -173,6 +186,7 @@ User → Metrics (1:many)
 User → Workouts (1:many)
 User → TrainingPlans (1:many)
 User → Conversations (1:many)
+User → OAuthTokens (1:many) 🔗
 TrainingPlan → Workouts (1:many)
 Conversation → Messages (1:many)
 ```
@@ -351,12 +365,83 @@ Readiness = (HRV Score × 30%) +
 5. Confirm to import
 6. Success message with counts
 
+### 🔗 Garmin Connect Integration
+
+**Automatic Data Sync from Garmin:**
+- **OAuth 1.0a Authentication**: Secure connection to your Garmin account
+- **Activity Sync**: Automatically import runs, rides, swims from Garmin devices
+- **Health Metrics**: Sync HRV, heart rate, sleep, stress data
+- **Auto-mapping**: Convert Garmin activity types to your training plan
+- **Manual Sync**: Fetch last 30 days on demand
+- **Auto-refresh**: Daily background sync (planned)
+
+**Setup Instructions:**
+
+1. **Register Developer App** at [Garmin Connect Developer Portal](https://developer.garmin.com/)
+   - Create a new application
+   - Set callback URL: `http://localhost:3000/api/garmin/callback` (development)
+   - For production: `https://yourdomain.com/api/garmin/callback`
+   - Note your Consumer Key and Consumer Secret
+
+2. **Configure Environment Variables**
+   ```env
+   GARMIN_CONSUMER_KEY="your-consumer-key-here"
+   GARMIN_CONSUMER_SECRET="your-consumer-secret-here"
+   GARMIN_CALLBACK_URL="http://localhost:3000/api/garmin/callback"
+   ```
+
+3. **Update Database Schema**
+   ```bash
+   npx prisma db push     # Add OAuthToken table
+   npx prisma generate    # Regenerate Prisma client
+   ```
+
+4. **Connect Your Account**
+   - Go to Settings page
+   - Click "Connect to Garmin"
+   - Authorize on Garmin Connect website
+   - Return to app - you're connected!
+
+5. **Sync Your Data**
+   - Click "Sync Now" to fetch last 30 days
+   - Activities automatically become workouts
+   - Health metrics populate your dashboard
+   - Use AI Coach with real Garmin data!
+
+**What Gets Synced:**
+
+- **Activities** → Workouts:
+  - Running (all types: road, trail, track)
+  - Cycling (road, mountain, indoor)
+  - Swimming (pool, open water)
+  - Triathlon
+  - Duration, distance, heart rate data
+
+- **Health Metrics** → Metrics:
+  - Resting Heart Rate
+  - Max Heart Rate
+  - HRV (Heart Rate Variability)
+  - Stress Level
+  - Sleep Hours
+  - Training Load (from Garmin calculations)
+
+**Disconnect:**
+- Removes OAuth token from database
+- Your synced data remains intact
+- Re-authorize anytime to sync new data
+
 ### ⚙️ User Settings
 
 **Profile Management:**
 - Name, age, gender, weight
 - Account creation date
 - Email (cannot be changed)
+
+**Garmin Connect Integration:** 🔗
+- Connect/disconnect Garmin account
+- View connection status and last sync time
+- Manual sync button (fetch last 30 days)
+- OAuth token management
 
 **Security:**
 - Change password (requires current password)
@@ -479,6 +564,50 @@ const navItems = [
   {
     "conversationId": "clxxx...",
     "message": "Based on your last 30 days..."
+  }
+  ```
+
+### Garmin Connect OAuth 🔗
+- `GET /api/garmin/connect` - Initiate OAuth flow
+  **Response:**
+  ```json
+  {
+    "authorizationUrl": "https://connect.garmin.com/oauthConfirm?oauth_token=..."
+  }
+  ```
+- `GET /api/garmin/callback?oauth_token=...&oauth_verifier=...` - OAuth callback
+  - Exchanges request token for access token
+  - Stores token in database
+  - Redirects to `/dashboard/settings?garmin_connected=true`
+- `GET /api/garmin/sync` - Check Garmin connection status
+  **Response:**
+  ```json
+  {
+    "connected": true,
+    "connectedAt": "2024-01-15T10:00:00Z",
+    "lastSync": "2024-01-20T14:30:00Z"
+  }
+  ```
+- `POST /api/garmin/sync` - Sync activities and metrics from Garmin
+  **Request:**
+  ```json
+  { "days": 30 }
+  ```
+  **Response:**
+  ```json
+  {
+    "success": true,
+    "activitiesImported": 15,
+    "metricsImported": 90,
+    "message": "Successfully synced..."
+  }
+  ```
+- `POST /api/garmin/disconnect` - Disconnect Garmin account
+  **Response:**
+  ```json
+  {
+    "success": true,
+    "message": "Garmin account disconnected successfully"
   }
   ```
 

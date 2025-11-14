@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { format } from 'date-fns';
-import { User, Save, Trash2, Key, AlertCircle } from 'lucide-react';
+import { User, Save, Trash2, Key, AlertCircle, Activity as ActivityIcon, RefreshCw, Link as LinkIcon, Unlink } from 'lucide-react';
 
 interface UserProfile {
   id: string;
@@ -35,9 +35,29 @@ export default function SettingsPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [changingPassword, setChangingPassword] = useState(false);
 
+  // Garmin Connect state
+  const [garminConnected, setGarminConnected] = useState(false);
+  const [garminLastSync, setGarminLastSync] = useState<string | null>(null);
+  const [garminConnecting, setGarminConnecting] = useState(false);
+  const [garminSyncing, setGarminSyncing] = useState(false);
+
   useEffect(() => {
     fetchProfile();
+    checkGarminConnection();
   }, []);
+
+  const checkGarminConnection = async () => {
+    try {
+      const response = await fetch('/api/garmin/sync');
+      if (response.ok) {
+        const data = await response.json();
+        setGarminConnected(data.connected);
+        setGarminLastSync(data.lastSync);
+      }
+    } catch (error) {
+      console.error('Error checking Garmin connection:', error);
+    }
+  };
 
   const fetchProfile = async () => {
     try {
@@ -140,6 +160,80 @@ export default function SettingsPage() {
       showMessage('error', error.message || 'Failed to change password');
     } finally {
       setChangingPassword(false);
+    }
+  };
+
+  const handleConnectGarmin = async () => {
+    setGarminConnecting(true);
+    try {
+      const response = await fetch('/api/garmin/connect');
+      if (!response.ok) {
+        throw new Error('Failed to initiate Garmin connection');
+      }
+
+      const data = await response.json();
+      // Redirect to Garmin authorization page
+      window.location.href = data.authorizationUrl;
+    } catch (error: any) {
+      console.error('Error connecting to Garmin:', error);
+      showMessage('error', error.message || 'Failed to connect to Garmin');
+      setGarminConnecting(false);
+    }
+  };
+
+  const handleSyncGarmin = async () => {
+    setGarminSyncing(true);
+    try {
+      const response = await fetch('/api/garmin/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ days: 30 }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to sync Garmin data');
+      }
+
+      const data = await response.json();
+      showMessage(
+        'success',
+        `Synced ${data.activitiesImported} activities and ${data.metricsImported} metrics from Garmin`
+      );
+      setGarminLastSync(new Date().toISOString());
+    } catch (error: any) {
+      console.error('Error syncing Garmin data:', error);
+      showMessage('error', error.message || 'Failed to sync Garmin data');
+    } finally {
+      setGarminSyncing(false);
+    }
+  };
+
+  const handleDisconnectGarmin = async () => {
+    const confirmation = confirm(
+      'Are you sure you want to disconnect your Garmin account? Your synced data will remain, but you will need to reconnect to sync new data.'
+    );
+
+    if (!confirmation) {
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/garmin/disconnect', {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to disconnect Garmin');
+      }
+
+      setGarminConnected(false);
+      setGarminLastSync(null);
+      showMessage('success', 'Garmin account disconnected successfully');
+    } catch (error: any) {
+      console.error('Error disconnecting Garmin:', error);
+      showMessage('error', error.message || 'Failed to disconnect Garmin');
     }
   };
 
@@ -387,6 +481,75 @@ export default function SettingsPage() {
             </div>
           </form>
         )}
+      </div>
+
+      {/* Garmin Connect Integration */}
+      <div className="bg-white rounded-lg shadow p-6 border border-gray-200">
+        <div className="flex items-center space-x-3 mb-6">
+          <ActivityIcon className="w-6 h-6 text-green-600" />
+          <h2 className="text-xl font-semibold">Garmin Connect Integration</h2>
+        </div>
+
+        <div className="space-y-4">
+          <p className="text-gray-600">
+            Connect your Garmin account to automatically sync your activities and health metrics.
+          </p>
+
+          {!garminConnected ? (
+            <div>
+              <button
+                onClick={handleConnectGarmin}
+                disabled={garminConnecting}
+                className="flex items-center space-x-2 bg-green-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <LinkIcon className="w-5 h-5" />
+                <span>{garminConnecting ? 'Connecting...' : 'Connect to Garmin'}</span>
+              </button>
+              <p className="text-sm text-gray-500 mt-2">
+                You'll be redirected to Garmin to authorize the connection
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center space-x-2 text-green-600">
+                <LinkIcon className="w-5 h-5" />
+                <span className="font-semibold">Connected to Garmin</span>
+              </div>
+
+              {garminLastSync && (
+                <div className="text-sm text-gray-600">
+                  Last synced: {format(new Date(garminLastSync), 'MMM d, yyyy h:mm a')}
+                </div>
+              )}
+
+              <div className="flex space-x-3">
+                <button
+                  onClick={handleSyncGarmin}
+                  disabled={garminSyncing}
+                  className="flex items-center space-x-2 bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <RefreshCw className={`w-5 h-5 ${garminSyncing ? 'animate-spin' : ''}`} />
+                  <span>{garminSyncing ? 'Syncing...' : 'Sync Now'}</span>
+                </button>
+
+                <button
+                  onClick={handleDisconnectGarmin}
+                  className="flex items-center space-x-2 bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-semibold hover:bg-gray-300 transition"
+                >
+                  <Unlink className="w-5 h-5" />
+                  <span>Disconnect</span>
+                </button>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm text-blue-800">
+                  <strong>Auto-sync:</strong> Your Garmin data syncs automatically every 24 hours.
+                  Use "Sync Now" to manually sync the last 30 days of activities and metrics.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Danger Zone */}
