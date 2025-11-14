@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import Anthropic from '@anthropic-ai/sdk';
+import { canAccessAIChat } from '@/lib/subscription-limits';
 import { subDays } from 'date-fns';
 
 const anthropic = new Anthropic({
@@ -15,6 +16,35 @@ export async function POST(req: Request) {
 
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Check subscription access for AI chat
+    let subscription = await prisma.subscription.findUnique({
+      where: { userId: session.user.id },
+    });
+
+    // Create FREE subscription if none exists
+    if (!subscription) {
+      subscription = await prisma.subscription.create({
+        data: {
+          userId: session.user.id,
+          tier: 'FREE',
+          status: 'ACTIVE',
+        },
+      });
+    }
+
+    const chatCheck = canAccessAIChat(subscription.tier);
+
+    if (!chatCheck.allowed) {
+      return NextResponse.json(
+        {
+          error: 'AI Chat not available',
+          message: chatCheck.reason,
+          upgradeRequired: chatCheck.upgradeRequired,
+        },
+        { status: 403 }
+      );
     }
 
     const body = await req.json();

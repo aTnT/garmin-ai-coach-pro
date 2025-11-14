@@ -9,7 +9,8 @@ import {
   convertGarminHealthMetrics,
   GarminTokens,
 } from '@/lib/garmin-oauth';
-import { subDays, format } from 'date-fns';
+import { canSyncGarmin } from '@/lib/subscription-limits';
+import { subDays, format, startOfMonth } from 'date-fns';
 
 export async function POST(req: Request) {
   try {
@@ -21,6 +22,56 @@ export async function POST(req: Request) {
 
     const body = await req.json();
     const { days = 30 } = body; // Number of days to sync
+
+    // Check subscription limits
+    let subscription = await prisma.subscription.findUnique({
+      where: { userId: session.user.id },
+    });
+
+    // Create FREE subscription if none exists
+    if (!subscription) {
+      subscription = await prisma.subscription.create({
+        data: {
+          userId: session.user.id,
+          tier: 'FREE',
+          status: 'ACTIVE',
+        },
+      });
+    }
+
+    // Reset monthly sync count if new month
+    const now = new Date();
+    const monthStart = startOfMonth(now);
+    if (subscription.lastSyncReset < monthStart) {
+      subscription = await prisma.subscription.update({
+        where: { userId: session.user.id },
+        data: {
+          garminSyncsThisMonth: 0,
+          lastSyncReset: now,
+        },
+      });
+    }
+
+    // Check if user can sync
+    const syncCheck = canSyncGarmin(
+      subscription.tier,
+      subscription.garminSyncsThisMonth
+    );
+
+    if (!syncCheck.allowed) {
+      return NextResponse.json(
+        {
+          error: 'Sync limit reached',
+          message: syncCheck.reason,
+          upgradeRequired: syncCheck.upgradeRequired,
+          usage: {
+            current: syncCheck.usage,
+            limit: syncCheck.currentLimit,
+          },
+        },
+        { status: 403 }
+      );
+    }
 
     // Get Garmin OAuth token
     const oauthToken = await prisma.oAuthToken.findUnique({
@@ -107,7 +158,7 @@ export async function POST(req: Request) {
         }
       }
 
-      // Update last sync time
+      // Update last sync time and increment sync counter
       await prisma.oAuthToken.update({
         where: {
           userId_provider: {
@@ -117,6 +168,16 @@ export async function POST(req: Request) {
         },
         data: {
           updatedAt: new Date(),
+        },
+      });
+
+      // Increment sync counter for usage tracking
+      await prisma.subscription.update({
+        where: { userId: session.user.id },
+        data: {
+          garminSyncsThisMonth: {
+            increment: 1,
+          },
         },
       });
 

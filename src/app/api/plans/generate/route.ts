@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { generateTrainingPlan } from '@/lib/calculations/plans';
+import { canCreatePlan } from '@/lib/subscription-limits';
 import { Sport } from '@prisma/client';
 
 const generatePlanSchema = z.object({
@@ -23,6 +24,47 @@ export async function POST(req: Request) {
 
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Check subscription limits for plan creation
+    let subscription = await prisma.subscription.findUnique({
+      where: { userId: session.user.id },
+    });
+
+    // Create FREE subscription if none exists
+    if (!subscription) {
+      subscription = await prisma.subscription.create({
+        data: {
+          userId: session.user.id,
+          tier: 'FREE',
+          status: 'ACTIVE',
+        },
+      });
+    }
+
+    // Count active plans
+    const activePlansCount = await prisma.trainingPlan.count({
+      where: {
+        userId: session.user.id,
+        status: 'ACTIVE',
+      },
+    });
+
+    const planCheck = canCreatePlan(subscription.tier, activePlansCount);
+
+    if (!planCheck.allowed) {
+      return NextResponse.json(
+        {
+          error: 'Plan limit reached',
+          message: planCheck.reason,
+          upgradeRequired: planCheck.upgradeRequired,
+          usage: {
+            current: planCheck.usage,
+            limit: planCheck.currentLimit,
+          },
+        },
+        { status: 403 }
+      );
     }
 
     const body = await req.json();

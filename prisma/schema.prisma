@@ -29,6 +29,7 @@ model User {
   plans         TrainingPlan[]
   conversations Conversation[]
   oauthTokens   OAuthToken[]
+  subscription  Subscription?
 }
 
 // Training Metrics
@@ -135,6 +136,37 @@ model OAuthToken {
   @@index([userId])
 }
 
+// Subscriptions and Billing
+model Subscription {
+  id                   String             @id @default(cuid())
+  userId               String             @unique
+  tier                 SubscriptionTier   @default(FREE)
+  status               SubscriptionStatus @default(ACTIVE)
+
+  // Stripe IDs
+  stripeCustomerId     String?            @unique
+  stripeSubscriptionId String?            @unique
+  stripePriceId        String?
+
+  // Billing cycle
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean            @default(false)
+
+  // Usage tracking (for FREE tier limits)
+  garminSyncsThisMonth Int                @default(0)
+  lastSyncReset        DateTime           @default(now())
+
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([stripeCustomerId])
+  @@index([stripeSubscriptionId])
+}
+
 // Enums
 enum Gender {
   MALE
@@ -183,4 +215,20 @@ enum MessageRole {
   USER
   ASSISTANT
   SYSTEM
+}
+
+enum SubscriptionTier {
+  FREE
+  PREMIUM
+  TEAM
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  PAST_DUE
+  TRIALING
+  INCOMPLETE
+  INCOMPLETE_EXPIRED
+  UNPAID
 }

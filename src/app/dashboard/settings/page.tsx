@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { format } from 'date-fns';
-import { User, Save, Trash2, Key, AlertCircle, Activity as ActivityIcon, RefreshCw, Link as LinkIcon, Unlink } from 'lucide-react';
+import { User, Save, Trash2, Key, AlertCircle, Activity as ActivityIcon, RefreshCw, Link as LinkIcon, Unlink, CreditCard, Crown, ArrowUpRight } from 'lucide-react';
 
 interface UserProfile {
   id: string;
@@ -41,9 +41,14 @@ export default function SettingsPage() {
   const [garminConnecting, setGarminConnecting] = useState(false);
   const [garminSyncing, setGarminSyncing] = useState(false);
 
+  // Subscription state
+  const [subscription, setSubscription] = useState<any>(null);
+  const [loadingPortal, setLoadingPortal] = useState(false);
+
   useEffect(() => {
     fetchProfile();
     checkGarminConnection();
+    fetchSubscription();
   }, []);
 
   const checkGarminConnection = async () => {
@@ -56,6 +61,38 @@ export default function SettingsPage() {
       }
     } catch (error) {
       console.error('Error checking Garmin connection:', error);
+    }
+  };
+
+  const fetchSubscription = async () => {
+    try {
+      const response = await fetch('/api/subscription');
+      if (response.ok) {
+        const data = await response.json();
+        setSubscription(data);
+      }
+    } catch (error) {
+      console.error('Error fetching subscription:', error);
+    }
+  };
+
+  const handleManageSubscription = async () => {
+    setLoadingPortal(true);
+    try {
+      const response = await fetch('/api/stripe/create-portal', {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create portal session');
+      }
+
+      const data = await response.json();
+      window.location.href = data.url;
+    } catch (error: any) {
+      console.error('Error creating portal session:', error);
+      showMessage('error', error.message || 'Failed to open subscription management');
+      setLoadingPortal(false);
     }
   };
 
@@ -550,6 +587,148 @@ export default function SettingsPage() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Subscription Management */}
+      <div className="bg-white rounded-lg shadow p-6 border border-gray-200">
+        <div className="flex items-center space-x-3 mb-6">
+          <CreditCard className="w-6 h-6 text-purple-600" />
+          <h2 className="text-xl font-semibold">Subscription & Billing</h2>
+        </div>
+
+        {subscription ? (
+          <div className="space-y-6">
+            {/* Current Plan */}
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="flex items-center space-x-2 mb-2">
+                  {subscription.subscription.tier !== 'FREE' && (
+                    <Crown className="w-5 h-5 text-yellow-500" />
+                  )}
+                  <h3 className="text-2xl font-bold text-gray-900">
+                    {subscription.features.tierName} Plan
+                  </h3>
+                </div>
+                <p className="text-gray-600">
+                  {subscription.subscription.tier === 'FREE' ? (
+                    'Get started with basic features'
+                  ) : (
+                    <>
+                      ${subscription.features.price}/month{' '}
+                      {subscription.subscription.cancelAtPeriodEnd && (
+                        <span className="text-red-600">(Cancels {format(new Date(subscription.subscription.currentPeriodEnd), 'MMM d, yyyy')})</span>
+                      )}
+                    </>
+                  )}
+                </p>
+              </div>
+
+              <div className="flex space-x-3">
+                {subscription.subscription.tier === 'FREE' ? (
+                  <a
+                    href="/pricing"
+                    className="flex items-center space-x-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:from-purple-700 hover:to-blue-700 transition"
+                  >
+                    <Crown className="w-5 h-5" />
+                    <span>Upgrade Plan</span>
+                    <ArrowUpRight className="w-4 h-4" />
+                  </a>
+                ) : (
+                  <button
+                    onClick={handleManageSubscription}
+                    disabled={loadingPortal}
+                    className="flex items-center space-x-2 bg-gray-800 text-white px-6 py-3 rounded-lg font-semibold hover:bg-gray-900 transition disabled:opacity-50"
+                  >
+                    <CreditCard className="w-5 h-5" />
+                    <span>{loadingPortal ? 'Loading...' : 'Manage Subscription'}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Billing Period */}
+            {subscription.subscription.tier !== 'FREE' && subscription.subscription.currentPeriodEnd && (
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-600">Current billing period:</span>
+                  <span className="font-semibold text-gray-900">
+                    {format(new Date(subscription.subscription.currentPeriodStart), 'MMM d')} - {format(new Date(subscription.subscription.currentPeriodEnd), 'MMM d, yyyy')}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Features Summary */}
+            <div>
+              <h4 className="font-semibold text-gray-900 mb-3">Your Plan Includes:</h4>
+              <div className="grid md:grid-cols-2 gap-4">
+                {subscription.features.features.slice(0, 6).map((feature: string, index: number) => (
+                  <div key={index} className="flex items-start space-x-2">
+                    <div className="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <svg className="w-3 h-3 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <span className="text-sm text-gray-700">{feature}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Usage Statistics */}
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="text-sm text-blue-800 mb-1">Garmin Syncs This Month</div>
+                <div className="text-2xl font-bold text-blue-900">
+                  {subscription.usage.garminSyncs.count}
+                  {subscription.features.limits.garminSyncsPerMonth !== 'Unlimited' && (
+                    <span className="text-sm font-normal text-blue-700">
+                      {' '}/ {subscription.features.limits.garminSyncsPerMonth}
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs text-blue-600 mt-1">{subscription.usage.garminSyncs.message}</div>
+              </div>
+
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                <div className="text-sm text-purple-800 mb-1">Active Training Plans</div>
+                <div className="text-2xl font-bold text-purple-900">
+                  {subscription.usage.activePlans.count}
+                  {subscription.usage.activePlans.limit !== 'Unlimited' && (
+                    <span className="text-sm font-normal text-purple-700">
+                      {' '}/ {subscription.usage.activePlans.limit}
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs text-purple-600 mt-1">
+                  {subscription.features.limits.maxActivePlans === 'Unlimited' ? 'No limit' : 'Plan limit'}
+                </div>
+              </div>
+            </div>
+
+            {/* Upgrade CTA for FREE users */}
+            {subscription.subscription.tier === 'FREE' && (
+              <div className="bg-gradient-to-r from-purple-50 to-blue-50 border-2 border-purple-200 rounded-lg p-6">
+                <h4 className="text-lg font-semibold text-gray-900 mb-2">Ready for more?</h4>
+                <p className="text-gray-700 mb-4">
+                  Upgrade to Premium for unlimited AI coaching, Garmin syncs, and advanced analytics.
+                </p>
+                <a
+                  href="/pricing"
+                  className="inline-flex items-center space-x-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:from-purple-700 hover:to-blue-700 transition"
+                >
+                  <span>View Pricing</span>
+                  <ArrowUpRight className="w-4 h-4" />
+                </a>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="text-center py-8">
+            <div className="animate-spin w-8 h-8 border-4 border-gray-300 border-t-blue-600 rounded-full mx-auto"></div>
+            <p className="text-gray-600 mt-4">Loading subscription...</p>
+          </div>
+        )}
       </div>
 
       {/* Danger Zone */}
