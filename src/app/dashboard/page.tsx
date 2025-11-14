@@ -106,6 +106,15 @@ export default function DashboardPage() {
           <h3 className="text-xl font-semibold mb-4">Quick Actions</h3>
           <div className="space-y-3">
             <Link
+              href="/dashboard/plans/new"
+              className="block bg-purple-50 hover:bg-purple-100 p-4 rounded-lg transition"
+            >
+              <div className="font-semibold text-purple-900">Create Training Plan</div>
+              <div className="text-sm text-purple-700">
+                Generate a periodized multi-week training plan
+              </div>
+            </Link>
+            <Link
               href="/dashboard/workouts"
               className="block bg-blue-50 hover:bg-blue-100 p-4 rounded-lg transition"
             >

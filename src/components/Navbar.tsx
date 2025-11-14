@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { signOut, useSession } from 'next-auth/react';
-import { Activity, Calendar, Upload, LogOut, User } from 'lucide-react';
+import { Activity, Calendar, Upload, LogOut, User, Route } from 'lucide-react';
 
 export default function Navbar() {
   const pathname = usePathname();
@@ -11,6 +11,7 @@ export default function Navbar() {
 
   const navItems = [
     { href: '/dashboard', label: 'Dashboard', icon: Activity },
+    { href: '/dashboard/plans', label: 'Training Plans', icon: Route },
     { href: '/dashboard/workouts', label: 'Workouts', icon: Calendar },
     { href: '/dashboard/upload', label: 'Upload Data', icon: Upload },
   ];
