@@ -3,6 +3,12 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
+import {
+  applyModificationsToPlan,
+  createPlanBackup,
+  type PlanModification,
+  type TrainingPlanData,
+} from '@/lib/engines/plan-modifier';
 
 const applySchema = z.object({
   action: z.enum(['apply', 'reject']),
@@ -66,31 +72,40 @@ export async function POST(
 
     if (action === 'apply') {
       // Apply the adaptation
-      // In a real system, this would actually modify the plan data
-      // For now, we'll just mark it as applied
+      const modifications = adaptation.modifications as unknown as PlanModification[];
+      const currentPlanData = adaptation.plan.planData as unknown as TrainingPlanData;
 
-      const modifications = adaptation.modifications as any;
+      // Create backup of current plan before modification
+      const planBackup = createPlanBackup(currentPlanData);
 
-      // TODO: Actually modify the plan.planData JSON based on modifications
-      // This would involve parsing the modifications and updating the plan structure
-      // Example: Reducing load, rescheduling workouts, changing intensities, etc.
+      // Apply all modifications
+      const modifiedPlanData = applyModificationsToPlan(
+        currentPlanData,
+        modifications
+      );
 
-      await prisma.planAdaptation.update({
-        where: { id: adaptationId },
-        data: {
-          status: 'APPLIED',
-          appliedAt: new Date(),
-          appliedBy: session.user.id,
-        },
-      });
+      // Update database with modified plan and adaptation status
+      await prisma.$transaction([
+        // Save the adaptation with backup
+        prisma.planAdaptation.update({
+          where: { id: adaptationId },
+          data: {
+            status: 'APPLIED',
+            appliedAt: new Date(),
+            appliedBy: session.user.id,
+            previousPlanData: planBackup as any,
+          },
+        }),
 
-      // Update plan's updatedAt timestamp
-      await prisma.trainingPlan.update({
-        where: { id: planId },
-        data: {
-          updatedAt: new Date(),
-        },
-      });
+        // Update plan with modified data
+        prisma.trainingPlan.update({
+          where: { id: planId },
+          data: {
+            planData: modifiedPlanData as any,
+            updatedAt: new Date(),
+          },
+        }),
+      ]);
 
       return NextResponse.json({
         success: true,

@@ -27,7 +27,7 @@ export async function GET(
     const { sessionId } = params;
 
     // Load HITL session
-    const hitlSession = loadSession(sessionId);
+    const hitlSession = await loadSession(sessionId);
 
     if (!hitlSession) {
       return NextResponse.json(
@@ -88,7 +88,7 @@ export async function DELETE(
     const { sessionId } = params;
 
     // Load HITL session
-    const hitlSession = loadSession(sessionId);
+    const hitlSession = await loadSession(sessionId);
 
     if (!hitlSession) {
       return NextResponse.json(
@@ -103,7 +103,7 @@ export async function DELETE(
     }
 
     // Delete session
-    deleteSession(sessionId);
+    await deleteSession(sessionId);
 
     return NextResponse.json({
       success: true,
@@ -137,7 +137,7 @@ export async function PATCH(
     const { sessionId } = params;
 
     // Load HITL session
-    const hitlSession = loadSession(sessionId);
+    const hitlSession = await loadSession(sessionId);
 
     if (!hitlSession) {
       return NextResponse.json(
@@ -155,7 +155,7 @@ export async function PATCH(
     hitlSession.status = 'completed';
     hitlSession.completedAt = new Date();
 
-    saveSession(hitlSession);
+    await saveSession(hitlSession);
 
     // Get final result
     const result = getWorkflowResult(hitlSession);

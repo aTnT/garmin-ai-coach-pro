@@ -35,7 +35,7 @@ export async function POST(
     const { questionId, answer } = answerSchema.parse(body);
 
     // Load HITL session
-    const hitlSession = loadSession(sessionId);
+    const hitlSession = await loadSession(sessionId);
 
     if (!hitlSession) {
       return NextResponse.json(
@@ -69,7 +69,7 @@ export async function POST(
     const updatedSession = submitAnswer(hitlSession, questionId, answer);
 
     // Save updated session
-    saveSession(updatedSession);
+    await saveSession(updatedSession);
 
     // Get next workflow state
     const result = getWorkflowResult(updatedSession);

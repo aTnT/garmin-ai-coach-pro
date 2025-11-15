@@ -590,34 +590,80 @@ export function getWorkflowResult(session: HITLSession): HITLWorkflowResult {
 // Persistence Helpers
 // ============================================================================
 
-// In-memory storage for demo (replace with database in production)
-const sessions = new Map<string, HITLSession>();
+import { prisma } from '@/lib/prisma';
 
-export function saveSession(session: HITLSession): void {
-  sessions.set(session.id, session);
+export async function saveSession(session: HITLSession): Promise<void> {
+  await prisma.hITLSession.upsert({
+    where: { id: session.id },
+    create: {
+      id: session.id,
+      userId: session.userId,
+      workflowType: session.workflowType,
+      status: session.status,
+      questions: session.questions as any,
+      responses: session.responses as any,
+      currentQuestionIndex: session.currentQuestionIndex,
+      initialContext: session.initialContext as any,
+      gatheredContext: session.gatheredContext as any,
+      createdAt: session.createdAt,
+      completedAt: session.completedAt,
+      expiresAt: session.expiresAt,
+    },
+    update: {
+      status: session.status,
+      responses: session.responses as any,
+      currentQuestionIndex: session.currentQuestionIndex,
+      gatheredContext: session.gatheredContext as any,
+      completedAt: session.completedAt,
+    },
+  });
 }
 
-export function loadSession(sessionId: string): HITLSession | null {
-  return sessions.get(sessionId) || null;
+export async function loadSession(sessionId: string): Promise<HITLSession | null> {
+  const dbSession = await prisma.hITLSession.findUnique({
+    where: { id: sessionId },
+  });
+
+  if (!dbSession) {
+    return null;
+  }
+
+  return {
+    id: dbSession.id,
+    userId: dbSession.userId,
+    workflowType: dbSession.workflowType as HITLSession['workflowType'],
+    status: dbSession.status as HITLSession['status'],
+    questions: dbSession.questions as unknown as HITLQuestion[],
+    responses: dbSession.responses as unknown as HITLResponse[],
+    currentQuestionIndex: dbSession.currentQuestionIndex,
+    initialContext: dbSession.initialContext as unknown as Record<string, any>,
+    gatheredContext: dbSession.gatheredContext as unknown as Record<string, any>,
+    createdAt: dbSession.createdAt,
+    completedAt: dbSession.completedAt || undefined,
+    expiresAt: dbSession.expiresAt,
+  };
 }
 
-export function deleteSession(sessionId: string): void {
-  sessions.delete(sessionId);
+export async function deleteSession(sessionId: string): Promise<void> {
+  await prisma.hITLSession.delete({
+    where: { id: sessionId },
+  });
 }
 
 /**
  * Clean up expired sessions
  */
-export function cleanupExpiredSessions(): number {
+export async function cleanupExpiredSessions(): Promise<number> {
   const now = new Date();
-  let cleaned = 0;
 
-  for (const [id, session] of sessions.entries()) {
-    if (session.expiresAt < now || session.status !== 'active') {
-      sessions.delete(id);
-      cleaned++;
-    }
-  }
+  const result = await prisma.hITLSession.deleteMany({
+    where: {
+      OR: [
+        { expiresAt: { lt: now } },
+        { status: { in: ['completed', 'abandoned'] } },
+      ],
+    },
+  });
 
-  return cleaned;
+  return result.count;
 }

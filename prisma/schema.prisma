@@ -124,6 +124,10 @@ model PlanAdaptation {
   rejectedAt  DateTime?
   rejectedReason String?
 
+  // Rollback support
+  previousPlanData Json? // Backup of plan before modification
+  rollbackAt  DateTime?
+
   createdAt   DateTime @default(now())
 
   plan TrainingPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
@@ -131,6 +135,31 @@ model PlanAdaptation {
   @@index([planId, createdAt])
   @@index([userId, createdAt])
   @@index([status])
+}
+
+// HITL Sessions (Human-in-the-Loop questioning)
+model HITLSession {
+  id             String   @id @default(cuid())
+  userId         String
+  workflowType   String   // plan_generation, plan_refinement, etc.
+  status         String   // active, completed, abandoned
+
+  // Questions and responses
+  questions      Json     // Array of HITLQuestion objects
+  responses      Json     // Array of HITLResponse objects
+  currentQuestionIndex Int @default(0)
+
+  // Context
+  initialContext   Json   // What we started with
+  gatheredContext  Json   // What we collected
+
+  // Metadata
+  createdAt      DateTime @default(now())
+  completedAt    DateTime?
+  expiresAt      DateTime
+
+  @@index([userId, createdAt])
+  @@index([status, expiresAt])
 }
 
 // AI Coaching Conversations

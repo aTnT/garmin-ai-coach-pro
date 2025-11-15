@@ -43,7 +43,7 @@ export async function POST(req: Request) {
     );
 
     // Save session
-    saveSession(hitlSession);
+    await saveSession(hitlSession);
 
     // Get initial workflow result
     const result = getWorkflowResult(hitlSession);
