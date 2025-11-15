@@ -4,15 +4,23 @@ import { subDays, startOfDay, isAfter } from 'date-fns';
 export interface ReadinessScore {
   score: number; // 0-100
   level: 'low' | 'moderate' | 'good' | 'excellent';
+  confidence: number; // 0-100 (confidence in the score accuracy)
+  confidenceLevel: 'very_low' | 'low' | 'moderate' | 'high' | 'very_high';
+  confidenceFactors: {
+    dataCompleteness: number; // 0-100
+    dataRecency: number; // 0-100
+    baselineQuality: number; // 0-100
+    signalAgreement: number; // 0-100
+  };
   explanation: string;
   factors: {
-    hrv: { score: number; impact: string };
-    trainingLoad: { score: number; impact: string };
-    recovery: { score: number; impact: string };
-    sleep: { score: number; impact: string };
-    restingHR: { score: number; impact: string };
-    stress: { score: number; impact: string };
-    workoutQuality: { score: number; impact: string };
+    hrv: { score: number; impact: string; hasData: boolean };
+    trainingLoad: { score: number; impact: string; hasData: boolean };
+    recovery: { score: number; impact: string; hasData: boolean };
+    sleep: { score: number; impact: string; hasData: boolean };
+    restingHR: { score: number; impact: string; hasData: boolean };
+    stress: { score: number; impact: string; hasData: boolean };
+    workoutQuality: { score: number; impact: string; hasData: boolean };
   };
 }
 
@@ -78,38 +86,59 @@ export function calculateReadinessScore(
   const level = getReadinessLevel(overallScore);
   const explanation = generateExplanation(overallScore, summary);
 
+  // Calculate confidence in the readiness score
+  const confidenceAnalysis = calculateConfidence(summary, metrics, {
+    hrv: !!summary.hrv && !!summary.hrvAvg,
+    trainingLoad: !!summary.acuteLoad && !!summary.chronicLoad,
+    recovery: !!summary.recoveryTime,
+    sleep: !!summary.sleepHours,
+    restingHR: !!summary.restingHR && !!summary.restingHRBaseline,
+    stress: !!summary.stress,
+    workoutQuality: !!summary.workoutQuality,
+  }, [hrvScore, loadScore, restingHRScore, stressScore, recoveryScore, sleepScore, workoutQualityScore]);
+
   return {
     score: overallScore,
     level,
+    confidence: confidenceAnalysis.overall,
+    confidenceLevel: confidenceAnalysis.level,
+    confidenceFactors: confidenceAnalysis.factors,
     explanation,
     factors: {
       hrv: {
         score: hrvScore,
         impact: getHRVImpact(summary.hrv, summary.hrvAvg),
+        hasData: !!summary.hrv && !!summary.hrvAvg,
       },
       trainingLoad: {
         score: loadScore,
         impact: getTrainingLoadImpact(summary.acuteLoad, summary.chronicLoad),
+        hasData: !!summary.acuteLoad && !!summary.chronicLoad,
       },
       recovery: {
         score: recoveryScore,
         impact: getRecoveryImpact(summary.recoveryTime),
+        hasData: !!summary.recoveryTime,
       },
       sleep: {
         score: sleepScore,
         impact: getSleepImpact(summary.sleepHours),
+        hasData: !!summary.sleepHours,
       },
       restingHR: {
         score: restingHRScore,
         impact: getRestingHRImpact(summary.restingHR, summary.restingHRAvg, summary.restingHRBaseline),
+        hasData: !!summary.restingHR && !!summary.restingHRBaseline,
       },
       stress: {
         score: stressScore,
         impact: getStressImpact(summary.stress, summary.stressAvg),
+        hasData: !!summary.stress,
       },
       workoutQuality: {
         score: workoutQualityScore,
         impact: getWorkoutQualityImpact(summary.workoutQuality, summary.recentWorkoutQuality),
+        hasData: !!summary.workoutQuality,
       },
     },
   };
@@ -465,4 +494,122 @@ function getWorkoutQualityImpact(
   if (avgQuality >= 3.0) return `${avgQuality.toFixed(1)}/5 - adequate quality${trend}`;
   if (avgQuality >= 2.0) return `${avgQuality.toFixed(1)}/5 - poor quality${trend}`;
   return `${avgQuality.toFixed(1)}/5 - very poor quality, consider extra recovery${trend}`;
+}
+
+/**
+ * Calculate confidence in the readiness score
+ *
+ * Confidence factors:
+ * 1. Data Completeness: How many signals have valid data
+ * 2. Data Recency: How recent is the latest metric
+ * 3. Baseline Quality: Sufficient historical data for baselines
+ * 4. Signal Agreement: Do all signals point in the same direction
+ */
+function calculateConfidence(
+  summary: MetricSummary,
+  metrics: Metric[],
+  hasData: Record<string, boolean>,
+  scores: number[]
+): {
+  overall: number;
+  level: 'very_low' | 'low' | 'moderate' | 'high' | 'very_high';
+  factors: {
+    dataCompleteness: number;
+    dataRecency: number;
+    baselineQuality: number;
+    signalAgreement: number;
+  };
+} {
+  // 1. Data Completeness (0-100)
+  // Count how many of the 7 signals have valid data
+  const signalsWithData = Object.values(hasData).filter(Boolean).length;
+  const totalSignals = Object.keys(hasData).length;
+  const dataCompleteness = (signalsWithData / totalSignals) * 100;
+
+  // 2. Data Recency (0-100)
+  // Check how recent the latest metric is
+  const now = new Date();
+  if (metrics.length === 0) {
+    var dataRecency = 0;
+  } else {
+    const latestMetric = metrics.reduce((latest, m) =>
+      new Date(m.date) > new Date(latest.date) ? m : latest
+    );
+    const hoursSinceLatest =
+      (now.getTime() - new Date(latestMetric.date).getTime()) / (1000 * 60 * 60);
+
+    // Score based on recency
+    if (hoursSinceLatest <= 24) var dataRecency = 100; // Within last day
+    else if (hoursSinceLatest <= 48) var dataRecency = 85; // 1-2 days
+    else if (hoursSinceLatest <= 72) var dataRecency = 70; // 2-3 days
+    else if (hoursSinceLatest <= 168) var dataRecency = 50; // 3-7 days
+    else var dataRecency = 25; // >7 days = stale
+  }
+
+  // 3. Baseline Quality (0-100)
+  // Check if we have enough data for reliable baselines
+  const last28Days = startOfDay(subDays(now, 28));
+  const last28DaysMetrics = metrics.filter((m) =>
+    isAfter(new Date(m.date), last28Days)
+  );
+
+  // Need at least 14 days of data for good baselines
+  const uniqueDays = new Set(
+    last28DaysMetrics.map((m) => new Date(m.date).toDateString())
+  ).size;
+
+  let baselineQuality = 0;
+  if (uniqueDays >= 21) baselineQuality = 100; // 3+ weeks
+  else if (uniqueDays >= 14) baselineQuality = 85; // 2-3 weeks
+  else if (uniqueDays >= 7) baselineQuality = 65; // 1-2 weeks
+  else if (uniqueDays >= 3) baselineQuality = 40; // 3-7 days
+  else baselineQuality = 20; // <3 days = very limited
+
+  // 4. Signal Agreement (0-100)
+  // Check if all signals point in the same direction
+  // Normalize scores to -1 to +1 scale (relative to neutral 70)
+  const normalizedScores = scores.map((s) => (s - 70) / 30);
+
+  // Calculate variance - low variance = high agreement
+  const mean = normalizedScores.reduce((a, b) => a + b, 0) / normalizedScores.length;
+  const variance =
+    normalizedScores.reduce((sum, s) => sum + Math.pow(s - mean, 2), 0) /
+    normalizedScores.length;
+  const stdDev = Math.sqrt(variance);
+
+  // Convert stdDev to agreement score (0-100)
+  // Low stdDev = high agreement
+  let signalAgreement = 0;
+  if (stdDev <= 0.3) signalAgreement = 100; // Very high agreement
+  else if (stdDev <= 0.5) signalAgreement = 85; // High agreement
+  else if (stdDev <= 0.7) signalAgreement = 70; // Moderate agreement
+  else if (stdDev <= 1.0) signalAgreement = 50; // Low agreement
+  else signalAgreement = 30; // Very low agreement (conflicting signals)
+
+  // Overall confidence: weighted average
+  const overall = Math.round(
+    dataCompleteness * 0.35 +
+      dataRecency * 0.25 +
+      baselineQuality * 0.25 +
+      signalAgreement * 0.15
+  );
+
+  // Determine confidence level
+  let level: 'very_low' | 'low' | 'moderate' | 'high' | 'very_high';
+  if (overall >= 85) level = 'very_high';
+  else if (overall >= 70) level = 'high';
+  else if (overall >= 50) level = 'moderate';
+  else if (overall >= 30) level = 'low';
+  else level = 'very_low';
+
+  return {
+    overall,
+    level,
+    factors: {
+      dataCompleteness,
+      dataRecency,
+      baselineQuality,
+      signalAgreement,
+    },
+  };
 }
