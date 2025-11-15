@@ -20,6 +20,10 @@ import { cleanupExpiredSessions } from '@/lib/ai/hitl-manager';
 import { cleanupOldAuditLogs } from '@/lib/audit-log';
 import { analyzeAndAdapt } from '@/lib/engines/adaptation-engine';
 import { calculateReadinessScore } from '@/lib/calculations/readiness';
+import {
+  notifyAdaptationRecommended,
+  notifyCriticalReadiness,
+} from '@/lib/notifications';
 import { subDays } from 'date-fns';
 
 /**
@@ -124,7 +128,7 @@ async function analyzePlanForAdaptations(planId: string, userId: string): Promis
 
     // If adaptations recommended, save them
     if (recommendation.modifications.length > 0) {
-      await prisma.planAdaptation.create({
+      const adaptation = await prisma.planAdaptation.create({
         data: {
           planId: plan.id,
           userId,
@@ -140,7 +144,30 @@ async function analyzePlanForAdaptations(planId: string, userId: string): Promis
         },
       });
 
+      // Send notification to user
+      await notifyAdaptationRecommended({
+        userId,
+        planId: plan.id,
+        planName: plan.name,
+        adaptationId: adaptation.id,
+        urgency: recommendation.urgency,
+        reasoning: recommendation.reasoning,
+      });
+
       return true; // Adaptations created
+    }
+
+    // Check for critical readiness even if no adaptations
+    if (currentReadiness.score < 30) {
+      const criticalFactors = Object.entries(currentReadiness.factors)
+        .filter(([_, factor]) => factor.score < 40)
+        .map(([name, _]) => name);
+
+      await notifyCriticalReadiness({
+        userId,
+        readinessScore: currentReadiness.score,
+        factors: criticalFactors,
+      });
     }
 
     return false; // No adaptations needed
