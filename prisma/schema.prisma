@@ -162,6 +162,26 @@ model HITLSession {
   @@index([status, expiresAt])
 }
 
+// Notifications
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String
+  type        NotificationType
+  priority    NotificationPriority
+  title       String
+  message     String   @db.Text
+  actionUrl   String?
+  actionLabel String?
+  metadata    Json?
+  read        Boolean  @default(false)
+  readAt      DateTime?
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime?
+
+  @@index([userId, read, createdAt])
+  @@index([expiresAt])
+}
+
 // AI Coaching Conversations
 model Conversation {
   id        String    @id @default(cuid())
@@ -379,4 +399,23 @@ enum AdaptationStatus {
   APPLIED     // Approved and applied to plan
   REJECTED    // User/coach declined
   SUPERSEDED  // Replaced by newer adaptation
+}
+
+enum NotificationType {
+  ADAPTATION_RECOMMENDED
+  ADAPTATION_APPLIED
+  READINESS_CRITICAL
+  READINESS_IMPROVED
+  TEAM_INVITE
+  WORKOUT_REMINDER
+  SUBSCRIPTION_UPDATED
+  PLAN_COMPLETED
+  MILESTONE_ACHIEVED
+}
+
+enum NotificationPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
 }

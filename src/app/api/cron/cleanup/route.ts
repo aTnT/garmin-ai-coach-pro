@@ -23,6 +23,7 @@ import { calculateReadinessScore } from '@/lib/calculations/readiness';
 import {
   notifyAdaptationRecommended,
   notifyCriticalReadiness,
+  cleanupExpiredNotifications,
 } from '@/lib/notifications';
 import { subDays } from 'date-fns';
 
@@ -196,6 +197,7 @@ export async function POST(req: Request) {
     const results = {
       hitlSessions: 0,
       auditLogs: 0,
+      notifications: 0,
       plansAnalyzed: 0,
       adaptationsCreated: 0,
       errors: [] as string[],
@@ -219,7 +221,16 @@ export async function POST(req: Request) {
       console.error('[CRON] Error cleaning audit logs:', error);
     }
 
-    // 3. Analyze active plans for adaptations (PREMIUM/TEAM only)
+    // 3. Cleanup expired notifications
+    try {
+      results.notifications = await cleanupExpiredNotifications();
+      console.log(`[CRON] Cleaned up ${results.notifications} expired notifications`);
+    } catch (error: any) {
+      results.errors.push(`Notification cleanup: ${error.message}`);
+      console.error('[CRON] Error cleaning notifications:', error);
+    }
+
+    // 4. Analyze active plans for adaptations (PREMIUM/TEAM only)
     try {
       // Get active plans for PREMIUM/TEAM users
       const activePlans = await prisma.trainingPlan.findMany({

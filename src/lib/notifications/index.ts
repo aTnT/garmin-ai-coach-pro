@@ -22,7 +22,7 @@ export type NotificationType =
   | 'PLAN_COMPLETED'
   | 'MILESTONE_ACHIEVED';
 
-export type NotificationPriority = 'low' | 'medium' | 'high' | 'urgent';
+export type NotificationPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
 
 export interface Notification {
   id: string;
@@ -58,33 +58,29 @@ export interface CreateNotificationParams {
 export async function createNotification(
   params: CreateNotificationParams
 ): Promise<Notification> {
-  // For now, store in simple JSON format in user metadata
-  // TODO: Create dedicated Notification table in future
+  const notification = await prisma.notification.create({
+    data: {
+      userId: params.userId,
+      type: params.type,
+      priority: params.priority,
+      title: params.title,
+      message: params.message,
+      actionUrl: params.actionUrl,
+      actionLabel: params.actionLabel,
+      metadata: params.metadata as any,
+      expiresAt: params.expiresAt,
+    },
+  });
 
-  const notification: Notification = {
-    id: `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-    userId: params.userId,
-    type: params.type,
-    priority: params.priority,
-    title: params.title,
-    message: params.message,
-    actionUrl: params.actionUrl,
-    actionLabel: params.actionLabel,
-    metadata: params.metadata,
-    read: false,
-    createdAt: new Date(),
-    expiresAt: params.expiresAt,
-  };
-
-  // Store notification (simplified - in production, use dedicated table)
   console.log('[Notification Created]', {
+    id: notification.id,
     userId: params.userId,
     type: params.type,
     priority: params.priority,
     title: params.title,
   });
 
-  return notification;
+  return notification as Notification;
 }
 
 /**
@@ -100,8 +96,8 @@ export async function notifyAdaptationRecommended(params: {
 }): Promise<void> {
   const priority: NotificationPriority =
     params.urgency === 'critical' || params.urgency === 'high'
-      ? 'high'
-      : 'medium';
+      ? 'HIGH'
+      : 'MEDIUM';
 
   await createNotification({
     userId: params.userId,
@@ -119,7 +115,7 @@ export async function notifyAdaptationRecommended(params: {
   });
 
   // TODO: Send email notification for high priority
-  if (priority === 'high') {
+  if (priority === 'HIGH') {
     console.log('[Email] Would send adaptation notification to user:', params.userId);
   }
 }
@@ -135,7 +131,7 @@ export async function notifyCriticalReadiness(params: {
   await createNotification({
     userId: params.userId,
     type: 'READINESS_CRITICAL',
-    priority: 'urgent',
+    priority: 'URGENT',
     title: 'Low Readiness Alert',
     message: `Your readiness is ${params.readinessScore}/100. Consider taking a rest day or reducing intensity.`,
     actionUrl: '/dashboard',
@@ -161,7 +157,7 @@ export async function notifyReadinessImproved(params: {
   await createNotification({
     userId: params.userId,
     type: 'READINESS_IMPROVED',
-    priority: 'low',
+    priority: 'LOW',
     title: 'Readiness Improved!',
     message: `Great recovery! Your readiness increased from ${params.previousScore} to ${params.readinessScore}.`,
     actionUrl: '/dashboard',
@@ -185,7 +181,7 @@ export async function notifyTeamInvite(params: {
   await createNotification({
     userId: params.userId,
     type: 'TEAM_INVITE',
-    priority: 'medium',
+    priority: 'MEDIUM',
     title: 'Team Invitation',
     message: `${params.coachName} invited you to join their team.`,
     actionUrl: `/dashboard/team?invite=${params.inviteId}`,
@@ -212,7 +208,7 @@ export async function notifyWorkoutReminder(params: {
   await createNotification({
     userId: params.userId,
     type: 'WORKOUT_REMINDER',
-    priority: 'low',
+    priority: 'LOW',
     title: 'Upcoming Workout',
     message: `"${params.workoutName}" scheduled for ${params.workoutTime.toLocaleTimeString()}.`,
     actionUrl: `/dashboard/workouts/${params.workoutId}`,
@@ -241,7 +237,7 @@ export async function notifyPlanCompleted(params: {
   await createNotification({
     userId: params.userId,
     type: 'PLAN_COMPLETED',
-    priority: 'medium',
+    priority: 'MEDIUM',
     title: 'Training Plan Completed! 🎉',
     message: `Congratulations on completing "${params.planName}"! You completed ${params.stats.completedWorkouts}/${params.stats.totalWorkouts} workouts (${Math.round(params.stats.completionRate * 100)}%).`,
     actionUrl: `/dashboard/plans/${params.planId}`,
@@ -268,7 +264,7 @@ export async function notifySubscriptionUpdated(params: {
   await createNotification({
     userId: params.userId,
     type: 'SUBSCRIPTION_UPDATED',
-    priority: 'medium',
+    priority: 'MEDIUM',
     title: 'Subscription Updated',
     message: params.message,
     actionUrl: '/dashboard/settings',
@@ -286,9 +282,23 @@ export async function notifySubscriptionUpdated(params: {
 export async function getUnreadNotifications(
   userId: string
 ): Promise<Notification[]> {
-  // TODO: Query from dedicated Notification table
-  // For now, return empty array (notifications are logged but not persisted)
-  return [];
+  const notifications = await prisma.notification.findMany({
+    where: {
+      userId,
+      read: false,
+      OR: [
+        { expiresAt: null },
+        { expiresAt: { gt: new Date() } },
+      ],
+    },
+    orderBy: [
+      { priority: 'desc' },
+      { createdAt: 'desc' },
+    ],
+    take: 50,
+  });
+
+  return notifications as Notification[];
 }
 
 /**
@@ -297,7 +307,14 @@ export async function getUnreadNotifications(
 export async function markNotificationRead(
   notificationId: string
 ): Promise<void> {
-  // TODO: Update in database
+  await prisma.notification.update({
+    where: { id: notificationId },
+    data: {
+      read: true,
+      readAt: new Date(),
+    },
+  });
+
   console.log('[Notification] Marked as read:', notificationId);
 }
 
@@ -305,9 +322,16 @@ export async function markNotificationRead(
  * Delete old notifications (cleanup)
  */
 export async function cleanupExpiredNotifications(): Promise<number> {
-  // TODO: Delete expired notifications from database
-  console.log('[Notification] Would cleanup expired notifications');
-  return 0;
+  const result = await prisma.notification.deleteMany({
+    where: {
+      expiresAt: {
+        lt: new Date(),
+      },
+    },
+  });
+
+  console.log(`[Notification] Cleaned up ${result.count} expired notifications`);
+  return result.count;
 }
 
 /**
@@ -320,12 +344,27 @@ export async function getNotificationCounts(userId: string): Promise<{
   medium: number;
   low: number;
 }> {
-  // TODO: Query from database
-  return {
-    total: 0,
-    urgent: 0,
-    high: 0,
-    medium: 0,
-    low: 0,
+  const notifications = await prisma.notification.findMany({
+    where: {
+      userId,
+      read: false,
+      OR: [
+        { expiresAt: null },
+        { expiresAt: { gt: new Date() } },
+      ],
+    },
+    select: {
+      priority: true,
+    },
+  });
+
+  const counts = {
+    total: notifications.length,
+    urgent: notifications.filter((n) => n.priority === 'URGENT').length,
+    high: notifications.filter((n) => n.priority === 'HIGH').length,
+    medium: notifications.filter((n) => n.priority === 'MEDIUM').length,
+    low: notifications.filter((n) => n.priority === 'LOW').length,
   };
+
+  return counts;
 }
