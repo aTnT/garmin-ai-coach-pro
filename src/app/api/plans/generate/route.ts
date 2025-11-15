@@ -16,6 +16,8 @@ const generatePlanSchema = z.object({
   goal: z.enum(['finish', 'improve', 'compete']),
   raceDistance: z.number().optional(),
   name: z.string().optional(),
+  useHITL: z.boolean().optional(), // Enable HITL questioning
+  hitlSessionId: z.string().optional(), // Resume from HITL session
 });
 
 export async function POST(req: Request) {
