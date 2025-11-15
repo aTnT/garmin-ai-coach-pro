@@ -14,24 +14,54 @@ An AI-powered endurance training platform that provides personalized coaching, a
 - **Context-Aware Insights**: AI analyzes your last 30 days of training history, metrics, and goals
 - **Science-Based Recommendations**: Periodization, recovery, and injury prevention guidance
 - **Persistent Conversations**: Chat history saved across sessions
+- **Usage Tracking**: AI chat gated by subscription tier with audit logging
 
 ### 📊 Training Management
 - **Readiness Scoring**: Daily 0-100 scores based on HRV, training load, recovery, and sleep
 - **Workout Generation**: Personalized sessions for all endurance sports
 - **Training Plans**: Adaptive, periodized plans (16-24 weeks) with Base/Build/Peak/Taper phases
 - **Workout Tracking**: Complete history with filtering, completion tracking, and notes
+- **Plan Export**: Download training plans as CSV for external calendars
 
 ### 📈 Data & Analytics
 - **Garmin Connect Sync**: Direct OAuth integration for automatic activity & metrics sync 🔗
+- **Automated Daily Sync**: Background cron job for hands-free Garmin data updates ⏰
 - **Interactive Charts**: HRV trends, Training Load, ACWR (injury risk), Readiness Score
 - **Flexible CSV Import**: Auto-detect and map Garmin Connect and Strava exports
 - **Smart Data Mapping**: Handles various column names and formats automatically
 - **Sample Data Generator**: 60-day realistic training history for testing
 - **Data Preview**: Review imported data before confirming
 
+### 💳 SaaS Monetization
+- **Stripe Integration**: Secure payment processing with subscription management
+- **Three-Tier Pricing**:
+  - **Free**: 7-day analysis, 5 Garmin syncs/month, 1 active plan
+  - **Premium** ($19/mo): 30-day analysis, unlimited syncs & plans, AI chat access
+  - **Team** ($49/mo): All Premium + coach-athlete management (up to 10 athletes)
+- **14-Day Free Trial**: All paid plans include risk-free trial period
+- **Customer Portal**: Self-service subscription management (upgrade, cancel, billing)
+- **Usage Tracking**: Automatic monthly sync count reset and limit enforcement
+
+### 👥 Team Features
+- **Coach-Athlete Management**: Coaches can invite and manage up to 10 athletes (Team tier)
+- **Permission-Based Access**: Granular control (view metrics, workouts, plans, edit plans)
+- **Team Dashboard**: Overview of all athletes with key stats (workouts, plans, readiness)
+- **Email Invitations**: Invite athletes by email with 7-day expiration
+- **Data Privacy**: Athletes control what coaches can see via permission settings
+
+### 🔒 Security & Compliance
+- **Rate Limiting**: API throttling to prevent abuse (e.g., 10 AI chat/min, 10 Garmin syncs/hour)
+- **Audit Logging**: Comprehensive tracking of sensitive operations (data access, syncs, team actions)
+- **GDPR Compliance**:
+  - **Data Export**: Download complete JSON archive of all personal data
+  - **Right to Deletion**: Permanent account and data deletion with email confirmation
+  - **Data Minimization**: 90-day audit log retention, no raw activity file storage
+- **Security Headers**: Rate limit headers on all API responses
+
 ### 👤 User Experience
 - **Modern Dashboard**: Real-time overview with quick actions and today's workout
-- **Profile Management**: Settings, password changes, data deletion
+- **Profile Management**: Settings, password changes, subscription management
+- **Privacy Controls**: Dedicated privacy page for data export and account deletion
 - **Responsive Design**: Desktop and mobile-friendly
 - **Suggested Questions**: AI coach starter prompts
 
@@ -42,8 +72,11 @@ An AI-powered endurance training platform that provides personalized coaching, a
 - **Backend**: Next.js API Routes, NextAuth.js for authentication
 - **Database**: PostgreSQL with Prisma ORM
 - **AI Integration**: Anthropic Claude API (Claude 3.5 Sonnet)
+- **Payments**: Stripe API for subscriptions and billing
+- **OAuth**: Garmin Connect OAuth 1.0a integration
 - **Charts**: Recharts for data visualization
 - **CSV Parsing**: PapaParse with intelligent format detection
+- **Security**: Rate limiting middleware, audit logging, GDPR compliance tools
 
 ### Project Structure
 ```
@@ -52,6 +85,8 @@ src/
 │   ├── api/                  # API endpoints
 │   │   ├── auth/             # Authentication (signup, NextAuth)
 │   │   ├── chat/             # AI coaching chat ✨
+│   │   ├── cron/             # Automated background jobs ⏰
+│   │   │   └── garmin-sync/  # Daily Garmin sync cron job
 │   │   ├── garmin/           # Garmin Connect OAuth & sync 🔗
 │   │   │   ├── connect/      # Initiate OAuth flow
 │   │   │   ├── callback/     # OAuth callback handler
@@ -59,17 +94,30 @@ src/
 │   │   │   └── disconnect/   # Remove OAuth token
 │   │   ├── metrics/          # Training metrics & charts
 │   │   ├── plans/            # Training plan generation
+│   │   ├── stripe/           # Stripe payment webhooks 💳
+│   │   │   ├── create-checkout/  # Subscription checkout
+│   │   │   ├── create-portal/    # Customer portal
+│   │   │   └── webhook/          # Subscription events
+│   │   ├── subscription/     # Subscription status API 💳
+│   │   ├── team/             # Team management APIs 👥
+│   │   │   ├── invite/       # Send athlete invitations
+│   │   │   ├── invites/      # List and manage invites
+│   │   │   └── athletes/     # View/remove athletes
 │   │   ├── workouts/         # Workout management
 │   │   ├── upload/           # CSV data import
 │   │   ├── seed/             # Sample data generation
-│   │   └── user/             # User profile & settings
+│   │   └── user/             # User profile & data management
+│   │       └── data/         # GDPR data export/deletion 🔒
 │   ├── auth/                 # Auth pages (login, signup)
+│   ├── pricing/              # Public pricing page 💳
 │   └── dashboard/            # Protected dashboard pages
 │       ├── chat/             # AI Coach chat interface ✨
 │       ├── plans/            # Training plans (list, detail, create)
+│       ├── team/             # Coach team dashboard 👥
+│       ├── privacy/          # GDPR data controls 🔒
 │       ├── workouts/         # Workout history & details
 │       ├── upload/           # Data upload with preview
-│       └── settings/         # User profile settings + Garmin 🔗
+│       └── settings/         # User profile + subscription + Garmin 🔗
 ├── components/               # Reusable React components
 │   ├── charts/              # Chart components
 │   ├── Navbar.tsx
@@ -83,10 +131,17 @@ src/
 │   ├── csv-mapper.ts         # CSV format detection & mapping
 │   ├── seed-data.ts          # Sample data generation
 │   ├── garmin-oauth.ts       # Garmin OAuth 1.0a & API (400+ lines) 🔗
+│   ├── stripe.ts             # Stripe integration (320+ lines) 💳
+│   ├── subscription-limits.ts # Feature gating by tier 💳
+│   ├── team.ts               # Team management logic (370+ lines) 👥
+│   ├── audit-log.ts          # Audit logging utilities 🔒
+│   ├── rate-limit.ts         # API rate limiting 🔒
 │   ├── auth.ts               # NextAuth configuration
 │   └── prisma.ts             # Prisma client
-└── prisma/
-    └── schema.prisma         # Database schema
+├── middleware.ts             # Rate limiting + auth middleware 🔒
+├── prisma/
+│   └── schema.prisma         # Database schema
+└── vercel.json               # Vercel Cron configuration ⏰
 ```
 
 ## 🚀 Quick Start (< 30 minutes)
@@ -141,6 +196,16 @@ GARMIN_CONSUMER_KEY="your-garmin-consumer-key-here"
 GARMIN_CONSUMER_SECRET="your-garmin-consumer-secret-here"
 GARMIN_CALLBACK_URL="http://localhost:3000/api/garmin/callback"
 
+# Stripe Payments (OPTIONAL - for subscriptions)
+STRIPE_SECRET_KEY="sk_test_your-stripe-secret-key"
+STRIPE_WEBHOOK_SECRET="whsec_your-webhook-secret"
+STRIPE_PREMIUM_PRICE_ID="price_premium_id_from_stripe"
+STRIPE_TEAM_PRICE_ID="price_team_id_from_stripe"
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY="pk_test_your-publishable-key"
+
+# Cron Jobs (OPTIONAL - for automated Garmin sync)
+CRON_SECRET="your-cron-secret-here"
+
 # App
 NODE_ENV="development"
 ```
@@ -172,13 +237,17 @@ Visit [http://localhost:3000](http://localhost:3000) and create an account!
 ## 📊 Database Schema
 
 ### Core Models
-- **User**: Authentication, profile (age, gender, weight)
+- **User**: Authentication, profile (age, gender, weight, role)
 - **Metric**: Training metrics (HRV, VO2max, Training Load, Sleep, Stress)
 - **Workout**: Training sessions with structured segments and completion tracking
 - **TrainingPlan**: Periodized multi-week plans with weekly progression
 - **Conversation**: AI coaching chat sessions
 - **Message**: Chat messages (USER/ASSISTANT/SYSTEM roles)
 - **OAuthToken**: Secure storage for external OAuth tokens (Garmin, Strava) 🔗
+- **Subscription**: User subscription tier, Stripe billing, usage tracking 💳
+- **TeamMembership**: Coach-athlete relationships with permission controls 👥
+- **TeamInvite**: Athlete invitation system with email and expiration 👥
+- **AuditLog**: Security and compliance audit trail 🔒
 
 ### Key Relationships
 ```
@@ -187,6 +256,9 @@ User → Workouts (1:many)
 User → TrainingPlans (1:many)
 User → Conversations (1:many)
 User → OAuthTokens (1:many) 🔗
+User → Subscription (1:1) 💳
+User → TeamMemberships (coach/athlete) (1:many) 👥
+User → TeamInvites (sent invites) (1:many) 👥
 TrainingPlan → Workouts (1:many)
 Conversation → Messages (1:many)
 ```
@@ -879,29 +951,37 @@ PORT=3001 npm run dev
 
 ## 📝 Future Roadmap
 
+### Completed Features ✅
+- [x] **Garmin Connect OAuth**: Direct sync with Garmin devices
+- [x] **SaaS Monetization**: Stripe subscriptions (Free/Premium/Team tiers)
+- [x] **Team Features**: Coach-athlete relationships
+- [x] **API rate limiting**: Middleware-based throttling
+- [x] **GDPR Compliance**: Data export and deletion
+- [x] **Audit Logging**: Security and compliance tracking
+- [x] **Automated Sync**: Daily Garmin sync cron job
+
 ### Planned Features
-- [ ] **Garmin Connect OAuth**: Direct sync with Garmin devices
 - [ ] **Strava Integration**: Import activities from Strava
-- [ ] **SaaS Monetization**: Stripe subscriptions (Free/Premium tiers)
-- [ ] **Team Features**: Coach-athlete relationships
+- [ ] **PDF Export**: Training plans and reports as PDF
 - [ ] **Mobile App**: React Native companion app
 - [ ] **Wearable Sync**: Real-time data from watches
 - [ ] **Race Calendar**: Integration with race databases
 - [ ] **Advanced Analytics**: Performance predictions, trend analysis
 - [ ] **Social Features**: Share workouts, compete with friends
 - [ ] **Workout Library**: Community-contributed workouts
+- [ ] **Power Curves**: Cycling power analysis charts
+- [ ] **Calendar Grid View**: Drag-and-drop plan scheduling
 
 ### Technical Improvements
 - [ ] Add comprehensive test suite (Jest, Playwright)
-- [ ] Implement caching layer (Redis)
-- [ ] Background job processing (BullMQ)
+- [ ] Implement caching layer (Redis/Upstash for rate limiting)
 - [ ] Monitoring (Sentry, DataDog)
 - [ ] Performance optimization (React Query)
-- [ ] API rate limiting
-- [ ] Data export (PDF reports, calendar sync)
 - [ ] Internationalization (i18n)
 - [ ] PWA features (offline mode)
 - [ ] WebSocket real-time updates
+- [x] Background job processing (Vercel Cron)
+- [x] Data export (CSV for plans)
 
 ## 🤝 Contributing
 

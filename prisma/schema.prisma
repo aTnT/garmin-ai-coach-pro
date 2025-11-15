@@ -215,6 +215,22 @@ model TeamInvite {
   @@index([status])
 }
 
+// Audit Logs for security and compliance
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?  // Null for system actions
+  action    String   // Action performed (e.g., "USER_LOGIN", "DATA_ACCESS", "PLAN_DELETED")
+  resource  String?  // Resource affected (e.g., "plan:123", "user:456")
+  ipAddress String?
+  userAgent String?
+  metadata  Json?    // Additional context
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@index([resource])
+}
+
 // Enums
 enum Gender {
   MALE

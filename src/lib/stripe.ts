@@ -178,6 +178,7 @@ export async function createCheckoutSession(params: {
     success_url: params.successUrl,
     cancel_url: params.cancelUrl,
     subscription_data: {
+      trial_period_days: 14, // 14-day free trial for all paid subscriptions
       metadata: {
         userId: params.userId,
         tier: params.tier,

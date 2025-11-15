@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Check, Zap, Users, ArrowRight } from 'lucide-react';
@@ -64,7 +64,7 @@ const tiers = [
   },
 ];
 
-export default function PricingPage() {
+function PricingContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -190,6 +190,11 @@ export default function PricingPage() {
                         <span className="text-gray-600 ml-2">/month</span>
                       )}
                     </div>
+                    {tierData.price > 0 && (
+                      <p className="text-sm text-green-600 font-medium mt-2">
+                        14-day free trial included
+                      </p>
+                    )}
                   </div>
 
                   {/* CTA Button */}
@@ -302,5 +307,13 @@ export default function PricingPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function PricingPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gradient-to-b from-blue-50 to-white flex items-center justify-center"><div className="text-gray-600">Loading...</div></div>}>
+      <PricingContent />
+    </Suspense>
   );
 }

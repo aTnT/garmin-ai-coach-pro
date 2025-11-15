@@ -11,6 +11,7 @@ import {
 } from '@/lib/garmin-oauth';
 import { canSyncGarmin } from '@/lib/subscription-limits';
 import { subDays, format, startOfMonth } from 'date-fns';
+import { logGarminSync } from '@/lib/audit-log';
 
 export async function POST(req: Request) {
   try {
@@ -179,6 +180,15 @@ export async function POST(req: Request) {
             increment: 1,
           },
         },
+      });
+
+      // Audit log: Track successful Garmin sync
+      await logGarminSync({
+        userId: session.user.id,
+        action: 'GARMIN_SYNC',
+        activitiesCount: activitiesImported,
+        metricsCount: metricsImported,
+        req,
       });
 
       return NextResponse.json({

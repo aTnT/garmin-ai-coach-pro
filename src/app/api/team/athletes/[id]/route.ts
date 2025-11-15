@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { canAccessAthleteData, removeAthlete, getPermissions } from '@/lib/team';
 import { subDays } from 'date-fns';
+import { logTeamOperation, logDataAccess } from '@/lib/audit-log';
 
 /**
  * Get athlete overview data
@@ -107,6 +108,23 @@ export async function GET(
       }),
     ]);
 
+    // Audit log: Track athlete data access (GDPR compliance)
+    await logTeamOperation({
+      action: 'TEAM_ATHLETE_VIEW',
+      userId: session.user.id,
+      targetUserId: athleteId,
+      req,
+    });
+
+    // Also log specific data access
+    await logDataAccess({
+      userId: athleteId,
+      accessorId: session.user.id,
+      dataType: 'athlete_profile',
+      dataId: athleteId,
+      req,
+    });
+
     return NextResponse.json({
       athlete,
       permissions,
@@ -158,6 +176,14 @@ export async function DELETE(
     }
 
     await removeAthlete(session.user.id, athleteId);
+
+    // Audit log: Track athlete removal
+    await logTeamOperation({
+      action: 'TEAM_ATHLETE_REMOVE',
+      userId: session.user.id,
+      targetUserId: athleteId,
+      req,
+    });
 
     return NextResponse.json({
       success: true,
