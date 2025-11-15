@@ -10,6 +10,9 @@ export interface ReadinessScore {
     trainingLoad: { score: number; impact: string };
     recovery: { score: number; impact: string };
     sleep: { score: number; impact: string };
+    restingHR: { score: number; impact: string };
+    stress: { score: number; impact: string };
+    workoutQuality: { score: number; impact: string };
   };
 }
 
@@ -22,11 +25,18 @@ export interface MetricSummary {
   recoveryTime?: number;
   sleepHours?: number;
   restingHR?: number;
+  restingHRAvg?: number;
+  restingHRBaseline?: number;
+  stress?: number;
+  stressAvg?: number;
+  workoutQuality?: number;
+  recentWorkoutQuality?: number[];
 }
 
 /**
  * Calculate readiness score based on multiple physiological metrics
- * This is a simplified formula-based approach (MVP version)
+ * Enhanced version with 7 signals: HRV, Training Load, Recovery, Sleep,
+ * Resting HR, Stress, and Workout Quality
  */
 export function calculateReadinessScore(
   metrics: Metric[]
@@ -41,13 +51,28 @@ export function calculateReadinessScore(
   );
   const recoveryScore = calculateRecoveryScore(summary.recoveryTime);
   const sleepScore = calculateSleepScore(summary.sleepHours);
+  const restingHRScore = calculateRestingHRScore(
+    summary.restingHR,
+    summary.restingHRAvg,
+    summary.restingHRBaseline
+  );
+  const stressScore = calculateStressScore(summary.stress, summary.stressAvg);
+  const workoutQualityScore = calculateWorkoutQualityScore(
+    summary.workoutQuality,
+    summary.recentWorkoutQuality
+  );
 
-  // Weighted average (HRV and training load are most important)
+  // Weighted average - redistributed to include new signals
+  // HRV (25%), Training Load (25%), Resting HR (15%), Stress (15%),
+  // Recovery (10%), Sleep (5%), Workout Quality (5%)
   const overallScore = Math.round(
-    hrvScore * 0.35 +
-      loadScore * 0.35 +
-      recoveryScore * 0.20 +
-      sleepScore * 0.10
+    hrvScore * 0.25 +
+      loadScore * 0.25 +
+      restingHRScore * 0.15 +
+      stressScore * 0.15 +
+      recoveryScore * 0.10 +
+      sleepScore * 0.05 +
+      workoutQualityScore * 0.05
   );
 
   const level = getReadinessLevel(overallScore);
@@ -73,6 +98,18 @@ export function calculateReadinessScore(
       sleep: {
         score: sleepScore,
         impact: getSleepImpact(summary.sleepHours),
+      },
+      restingHR: {
+        score: restingHRScore,
+        impact: getRestingHRImpact(summary.restingHR, summary.restingHRAvg, summary.restingHRBaseline),
+      },
+      stress: {
+        score: stressScore,
+        impact: getStressImpact(summary.stress, summary.stressAvg),
+      },
+      workoutQuality: {
+        score: workoutQualityScore,
+        impact: getWorkoutQualityImpact(summary.workoutQuality, summary.recentWorkoutQuality),
       },
     },
   };
@@ -130,6 +167,41 @@ function summarizeMetrics(metrics: Metric[]): MetricSummary {
       ? sleepMetrics.reduce((sum, m) => sum + m.value, 0) / sleepMetrics.length
       : undefined;
 
+  // Resting HR (latest + 7-day average + 28-day baseline)
+  const restingHRMetrics = recentMetrics.filter((m) => m.type === 'RESTING_HR');
+  const restingHR = restingHRMetrics.length > 0 ? restingHRMetrics[0].value : undefined;
+  const restingHRAvg =
+    restingHRMetrics.length > 0
+      ? restingHRMetrics.reduce((sum, m) => sum + m.value, 0) / restingHRMetrics.length
+      : undefined;
+
+  // 28-day baseline for resting HR
+  const last28DaysRestingHR = metrics
+    .filter((m) => m.type === 'RESTING_HR' && isAfter(new Date(m.date), last28Days))
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const restingHRBaseline =
+    last28DaysRestingHR.length > 0
+      ? last28DaysRestingHR.reduce((sum, m) => sum + m.value, 0) / last28DaysRestingHR.length
+      : undefined;
+
+  // Stress (latest + 7-day average)
+  const stressMetrics = recentMetrics.filter((m) => m.type === 'STRESS_LEVEL');
+  const stress = stressMetrics.length > 0 ? stressMetrics[0].value : undefined;
+  const stressAvg =
+    stressMetrics.length > 0
+      ? stressMetrics.reduce((sum, m) => sum + m.value, 0) / stressMetrics.length
+      : undefined;
+
+  // Workout Quality (average of last 7 workouts)
+  const workoutQualityMetrics = recentMetrics
+    .filter((m) => m.type === 'WORKOUT_QUALITY')
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const workoutQuality =
+    workoutQualityMetrics.length > 0
+      ? workoutQualityMetrics.reduce((sum, m) => sum + m.value, 0) / workoutQualityMetrics.length
+      : undefined;
+  const recentWorkoutQuality = workoutQualityMetrics.slice(0, 7).map((m) => m.value);
+
   return {
     hrv,
     hrvAvg,
@@ -137,6 +209,13 @@ function summarizeMetrics(metrics: Metric[]): MetricSummary {
     chronicLoad,
     recoveryTime,
     sleepHours,
+    restingHR,
+    restingHRAvg,
+    restingHRBaseline,
+    stress,
+    stressAvg,
+    workoutQuality,
+    recentWorkoutQuality,
   };
 }
 
@@ -263,4 +342,127 @@ function getSleepImpact(sleepHours?: number): string {
   if (sleepHours >= 7) return `${sleepHours.toFixed(1)}h - good sleep`;
   if (sleepHours >= 6) return `${sleepHours.toFixed(1)}h - adequate sleep`;
   return `${sleepHours.toFixed(1)}h - insufficient sleep`;
+}
+
+/**
+ * Resting HR Score: Lower HR relative to baseline indicates better recovery
+ * Elevated resting HR (+5-10 bpm) often signals fatigue or overtraining
+ */
+function calculateRestingHRScore(
+  restingHR?: number,
+  restingHRAvg?: number,
+  restingHRBaseline?: number
+): number {
+  if (!restingHR || !restingHRBaseline) return 70; // Neutral if no data
+
+  const difference = restingHR - restingHRBaseline;
+
+  // Lower than baseline = better recovery
+  if (difference <= -3) return 100; // 3+ bpm below baseline = excellent
+  if (difference <= -1) return 90; // 1-3 bpm below = very good
+  if (difference <= 2) return 75; // Within 2 bpm = good
+  if (difference <= 5) return 55; // 2-5 bpm above = moderate concern
+  if (difference <= 8) return 35; // 5-8 bpm above = high fatigue
+  return 20; // >8 bpm above = severe fatigue or illness
+}
+
+function getRestingHRImpact(
+  restingHR?: number,
+  restingHRAvg?: number,
+  restingHRBaseline?: number
+): string {
+  if (!restingHR || !restingHRBaseline) return 'No resting HR data available';
+
+  const difference = restingHR - restingHRBaseline;
+  const sign = difference >= 0 ? '+' : '';
+
+  if (difference <= -3)
+    return `${restingHR.toFixed(0)} bpm (${sign}${difference.toFixed(0)}) - excellent recovery`;
+  if (difference <= -1)
+    return `${restingHR.toFixed(0)} bpm (${sign}${difference.toFixed(0)}) - good recovery`;
+  if (difference <= 2)
+    return `${restingHR.toFixed(0)} bpm (${sign}${difference.toFixed(0)}) - normal`;
+  if (difference <= 5)
+    return `${restingHR.toFixed(0)} bpm (${sign}${difference.toFixed(0)}) - elevated, monitor closely`;
+  if (difference <= 8)
+    return `${restingHR.toFixed(0)} bpm (${sign}${difference.toFixed(0)}) - high fatigue detected`;
+  return `${restingHR.toFixed(0)} bpm (${sign}${difference.toFixed(0)}) - severe fatigue or illness risk`;
+}
+
+/**
+ * Stress Score: Based on Garmin stress level (0-100 scale)
+ * Lower stress = better readiness
+ */
+function calculateStressScore(stress?: number, stressAvg?: number): number {
+  if (!stress) return 70; // Neutral if no data
+
+  // Garmin stress: 0-25 = rest, 26-50 = low, 51-75 = medium, 76-100 = high
+  if (stress <= 25) return 100; // Rest/very low stress
+  if (stress <= 40) return 85; // Low stress
+  if (stress <= 60) return 65; // Medium stress
+  if (stress <= 75) return 45; // High stress
+  return 25; // Very high stress
+}
+
+function getStressImpact(stress?: number, stressAvg?: number): string {
+  if (!stress) return 'No stress data available';
+
+  if (stress <= 25) return `${stress.toFixed(0)} - rest/relaxed state`;
+  if (stress <= 40) return `${stress.toFixed(0)} - low stress, well-managed`;
+  if (stress <= 60) return `${stress.toFixed(0)} - medium stress, monitor recovery`;
+  if (stress <= 75) return `${stress.toFixed(0)} - high stress, prioritize rest`;
+  return `${stress.toFixed(0)} - very high stress, recovery essential`;
+}
+
+/**
+ * Workout Quality Score: Based on recent workout completion and subjective quality
+ * Scale: 1-5 (1=very poor, 2=poor, 3=okay, 4=good, 5=excellent)
+ * Trend matters: declining quality suggests accumulating fatigue
+ */
+function calculateWorkoutQualityScore(
+  avgQuality?: number,
+  recentQuality?: number[]
+): number {
+  if (!avgQuality || !recentQuality || recentQuality.length === 0) return 70; // Neutral if no data
+
+  // Check for declining trend (last 3 workouts vs previous)
+  let trendPenalty = 0;
+  if (recentQuality.length >= 5) {
+    const recent3 = recentQuality.slice(0, 3).reduce((a, b) => a + b, 0) / 3;
+    const previous3 = recentQuality.slice(3, 6).reduce((a, b) => a + b, 0) / 3;
+    if (recent3 < previous3 - 0.5) trendPenalty = -15; // Declining quality
+  }
+
+  // Base score on average quality
+  let baseScore = 50;
+  if (avgQuality >= 4.5) baseScore = 100;
+  else if (avgQuality >= 4.0) baseScore = 90;
+  else if (avgQuality >= 3.5) baseScore = 80;
+  else if (avgQuality >= 3.0) baseScore = 70;
+  else if (avgQuality >= 2.5) baseScore = 55;
+  else if (avgQuality >= 2.0) baseScore = 40;
+  else baseScore = 25;
+
+  return Math.max(0, Math.min(100, baseScore + trendPenalty));
+}
+
+function getWorkoutQualityImpact(
+  avgQuality?: number,
+  recentQuality?: number[]
+): string {
+  if (!avgQuality) return 'No workout quality data available';
+
+  let trend = '';
+  if (recentQuality && recentQuality.length >= 5) {
+    const recent3 = recentQuality.slice(0, 3).reduce((a, b) => a + b, 0) / 3;
+    const previous3 = recentQuality.slice(3, 6).reduce((a, b) => a + b, 0) / 3;
+    if (recent3 < previous3 - 0.5) trend = ' (declining trend - watch for fatigue)';
+    else if (recent3 > previous3 + 0.5) trend = ' (improving trend)';
+  }
+
+  if (avgQuality >= 4.5) return `${avgQuality.toFixed(1)}/5 - excellent workout quality${trend}`;
+  if (avgQuality >= 4.0) return `${avgQuality.toFixed(1)}/5 - good quality${trend}`;
+  if (avgQuality >= 3.0) return `${avgQuality.toFixed(1)}/5 - adequate quality${trend}`;
+  if (avgQuality >= 2.0) return `${avgQuality.toFixed(1)}/5 - poor quality${trend}`;
+  return `${avgQuality.toFixed(1)}/5 - very poor quality, consider extra recovery${trend}`;
 }

@@ -257,6 +257,7 @@ enum MetricType {
   READINESS_SCORE
   SLEEP_HOURS
   STRESS_LEVEL
+  WORKOUT_QUALITY
 }
 
 enum WorkoutType {
