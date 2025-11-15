@@ -22,6 +22,7 @@ model User {
   age          Int?
   gender       Gender?
   weight       Float?    // kg
+  role         UserRole  @default(ATHLETE)
 
   // Relations
   metrics       Metric[]
@@ -30,6 +31,11 @@ model User {
   conversations Conversation[]
   oauthTokens   OAuthToken[]
   subscription  Subscription?
+
+  // Team relationships
+  coaching      TeamMembership[] @relation("CoachMemberships")
+  athletes      TeamMembership[] @relation("AthleteMemberships")
+  sentInvites   TeamInvite[]     @relation("CoachInvites")
 }
 
 // Training Metrics
@@ -167,6 +173,48 @@ model Subscription {
   @@index([stripeSubscriptionId])
 }
 
+// Team Management
+model TeamMembership {
+  id        String   @id @default(cuid())
+  coachId   String
+  athleteId String
+
+  // Permissions
+  canViewMetrics   Boolean @default(true)
+  canViewWorkouts  Boolean @default(true)
+  canViewPlans     Boolean @default(true)
+  canEditPlans     Boolean @default(false)
+
+  // Metadata
+  joinedAt  DateTime @default(now())
+  notes     String?
+
+  coach   User @relation("CoachMemberships", fields: [coachId], references: [id], onDelete: Cascade)
+  athlete User @relation("AthleteMemberships", fields: [athleteId], references: [id], onDelete: Cascade)
+
+  @@unique([coachId, athleteId])
+  @@index([coachId])
+  @@index([athleteId])
+}
+
+model TeamInvite {
+  id          String       @id @default(cuid())
+  coachId     String
+  athleteEmail String
+  status      InviteStatus @default(PENDING)
+  message     String?
+
+  createdAt   DateTime @default(now())
+  respondedAt DateTime?
+  expiresAt   DateTime // 7 days from creation
+
+  coach User @relation("CoachInvites", fields: [coachId], references: [id], onDelete: Cascade)
+
+  @@index([coachId])
+  @@index([athleteEmail])
+  @@index([status])
+}
+
 // Enums
 enum Gender {
   MALE
@@ -231,4 +279,16 @@ enum SubscriptionStatus {
   INCOMPLETE
   INCOMPLETE_EXPIRED
   UNPAID
+}
+
+enum UserRole {
+  ATHLETE
+  COACH
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
 }
