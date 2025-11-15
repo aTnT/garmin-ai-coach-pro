@@ -35,6 +35,7 @@ export const AUDIT_ACTIONS = {
   AI_CHAT: 'AI_CHAT',
   WORKOUT_GENERATE: 'WORKOUT_GENERATE',
   PLAN_GENERATE: 'PLAN_GENERATE',
+  PLAN_ANALYZE: 'PLAN_ANALYZE',
 
   // Plans and Workouts
   PLAN_CREATE: 'PLAN_CREATE',
@@ -136,7 +137,7 @@ export async function logDataAccess(params: {
  */
 export async function logAIOperation(params: {
   userId: string;
-  action: 'AI_CHAT' | 'WORKOUT_GENERATE' | 'PLAN_GENERATE';
+  action: 'AI_CHAT' | 'WORKOUT_GENERATE' | 'PLAN_GENERATE' | 'PLAN_ANALYZE';
   tokens?: number;
   cost?: number;
   req?: Request;

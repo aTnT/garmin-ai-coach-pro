@@ -96,6 +96,41 @@ model TrainingPlan {
 
   user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   workouts    Workout[]
+  adaptations PlanAdaptation[]
+}
+
+// Plan Adaptations (automatic adjustments based on readiness/performance)
+model PlanAdaptation {
+  id          String   @id @default(cuid())
+  planId      String
+  userId      String   // For easy querying
+
+  // Trigger info
+  triggerType String   // LOW_READINESS, MISSED_WORKOUTS, etc.
+  severity    String   // low, medium, high, critical
+  detected    DateTime
+
+  // Recommendation
+  confidence  Int      // 0-100
+  urgency     String   // low, medium, high, critical
+  reasoning   String   @db.Text
+  modifications Json   // Array of PlanModification objects
+  alternatives Json?   // Alternative approaches
+
+  // Status
+  status      AdaptationStatus @default(PENDING)
+  appliedAt   DateTime?
+  appliedBy   String?  // userId who approved
+  rejectedAt  DateTime?
+  rejectedReason String?
+
+  createdAt   DateTime @default(now())
+
+  plan TrainingPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([planId, createdAt])
+  @@index([userId, createdAt])
+  @@index([status])
 }
 
 // AI Coaching Conversations
@@ -308,4 +343,11 @@ enum InviteStatus {
   ACCEPTED
   DECLINED
   EXPIRED
+}
+
+enum AdaptationStatus {
+  PENDING     // Recommended, awaiting approval
+  APPLIED     // Approved and applied to plan
+  REJECTED    // User/coach declined
+  SUPERSEDED  // Replaced by newer adaptation
 }
