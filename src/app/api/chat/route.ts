@@ -5,6 +5,8 @@ import { prisma } from '@/lib/prisma';
 import Anthropic from '@anthropic-ai/sdk';
 import { canAccessAIChat } from '@/lib/subscription-limits';
 import { subDays } from 'date-fns';
+import { runMultiAgentAnalysis, type AgentState } from '@/lib/agents/multi-agent-system';
+import { logAIOperation } from '@/lib/audit-log';
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || '',
@@ -85,29 +87,64 @@ export async function POST(req: Request) {
     // Get user's training context
     const trainingContext = await getUserTrainingContext(session.user.id);
 
-    // Build messages for Claude
-    const messages = [
-      ...conversation.messages.map((msg) => ({
-        role: msg.role.toLowerCase() as 'user' | 'assistant',
-        content: msg.content,
-      })),
-      {
-        role: 'user' as const,
-        content: message,
-      },
-    ];
+    // Determine which AI mode to use
+    // Multi-agent analysis for PREMIUM/TEAM users, simple chat for FREE
+    const useMultiAgent = subscription.tier !== 'FREE' || process.env.ENABLE_MULTI_AGENT_FOR_ALL === 'true';
 
-    // Call Claude API
-    const response = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 2048,
-      system: getCoachingSystemPrompt(trainingContext),
-      messages,
-    });
+    let assistantMessage: string;
 
-    const assistantMessage = response.content[0].type === 'text'
-      ? response.content[0].text
-      : '';
+    if (useMultiAgent) {
+      // Use multi-agent LangGraph analysis
+      try {
+        const agentState: AgentState = {
+          userId: session.user.id,
+          userContext: {
+            name: trainingContext.user?.name || 'Athlete',
+            age: trainingContext.user?.age || undefined,
+            gender: trainingContext.user?.gender || undefined,
+            sports: [], // TODO: Add sports from user profile
+            goals: trainingContext.activePlans[0]?.goal || undefined,
+          },
+          metrics: (trainingContext.fullMetrics || []).map(m => ({
+            date: m.date,
+            type: m.type,
+            value: m.value,
+            unit: m.unit || undefined,
+          })),
+          workouts: (trainingContext.fullWorkouts || []).map(w => ({
+            date: w.date,
+            sport: w.sport,
+            type: w.type,
+            duration: w.duration || undefined,
+            distance: w.distance || undefined,
+            completed: w.completed,
+          })),
+          plans: trainingContext.activePlans.map(p => ({
+            name: p.name,
+            sport: p.sport,
+            goal: p.goal || '',
+            status: 'ACTIVE',
+          })),
+          query: message,
+        };
+
+        assistantMessage = await runMultiAgentAnalysis(agentState);
+
+        // Log AI operation for cost tracking
+        await logAIOperation({
+          userId: session.user.id,
+          action: 'AI_CHAT',
+          req,
+        });
+      } catch (error: any) {
+        console.error('Multi-agent analysis failed, falling back to simple chat:', error);
+        // Fallback to simple chat if multi-agent fails
+        assistantMessage = await runSimpleChat(conversation, message, trainingContext);
+      }
+    } else {
+      // Use simple single-agent chat for FREE tier
+      assistantMessage = await runSimpleChat(conversation, message, trainingContext);
+    }
 
     // Save assistant response
     await prisma.message.create({
@@ -129,6 +166,32 @@ export async function POST(req: Request) {
       { status: 500 }
     );
   }
+}
+
+async function runSimpleChat(conversation: any, message: string, trainingContext: any): Promise<string> {
+  // Build messages for Claude
+  const messages = [
+    ...conversation.messages.map((msg: any) => ({
+      role: msg.role.toLowerCase() as 'user' | 'assistant',
+      content: msg.content,
+    })),
+    {
+      role: 'user' as const,
+      content: message,
+    },
+  ];
+
+  // Call Claude API
+  const response = await anthropic.messages.create({
+    model: 'claude-3-5-sonnet-20241022',
+    max_tokens: 2048,
+    system: getCoachingSystemPrompt(trainingContext),
+    messages,
+  });
+
+  return response.content[0].type === 'text'
+    ? response.content[0].text
+    : '';
 }
 
 async function getUserTrainingContext(userId: string) {
@@ -198,6 +261,9 @@ async function getUserTrainingContext(userId: string) {
       goal: p.goal,
       weeks: p.weeks,
     })),
+    // Full data for multi-agent system
+    fullMetrics: recentMetrics,
+    fullWorkouts: recentWorkouts,
   };
 }
 
