@@ -56,7 +56,10 @@ describe('Metrics API', () => {
     it('should return 401 without authentication', async () => {
       (getServerSession as jest.Mock).mockResolvedValue(null);
 
-      const request = new NextRequest('http://localhost:3000/api/metrics');
+      const request = {
+        url: 'http://localhost:3000/api/metrics',
+      } as any;
+
       const response = await GET(request);
       const data = await response.json();
 
@@ -92,7 +95,10 @@ describe('Metrics API', () => {
 
       (prisma.metric.findMany as jest.Mock).mockResolvedValue(mockMetrics);
 
-      const request = new NextRequest('http://localhost:3000/api/metrics');
+      const request = {
+        url: 'http://localhost:3000/api/metrics',
+      } as any;
+
       const response = await GET(request);
       const data = await response.json();
 
@@ -108,7 +114,9 @@ describe('Metrics API', () => {
 
       (prisma.metric.findMany as jest.Mock).mockResolvedValue([]);
 
-      const request = new NextRequest('http://localhost:3000/api/metrics?days=7');
+      const request = {
+        url: 'http://localhost:3000/api/metrics?days=7',
+      } as any;
 
       const response = await GET(request);
 
@@ -149,7 +157,10 @@ describe('Metrics API', () => {
 
       (prisma.metric.findMany as jest.Mock).mockResolvedValue(mockMetrics);
 
-      const request = new NextRequest('http://localhost:3000/api/metrics');
+      const request = {
+        url: 'http://localhost:3000/api/metrics',
+      } as any;
+
       const response = await GET(request);
       const data = await response.json();
 
@@ -165,7 +176,10 @@ describe('Metrics API', () => {
         new Error('Database connection failed')
       );
 
-      const request = new NextRequest('http://localhost:3000/api/metrics');
+      const request = {
+        url: 'http://localhost:3000/api/metrics',
+      } as any;
+
       const response = await GET(request);
       const data = await response.json();
 
