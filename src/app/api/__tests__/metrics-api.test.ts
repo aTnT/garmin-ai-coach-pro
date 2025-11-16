@@ -28,10 +28,8 @@ jest.mock('next-auth', () => ({
 // Mock Prisma
 jest.mock('@/lib/prisma', () => ({
   prisma: {
-    healthMetric: {
-      create: jest.fn(),
+    metric: {
       findMany: jest.fn(),
-      deleteMany: jest.fn(),
     },
     user: {
       findUnique: jest.fn(),
@@ -46,7 +44,7 @@ jest.mock('@/lib/rate-limit', () => ({
 
 import { getServerSession } from 'next-auth';
 import { prisma } from '@/lib/prisma';
-import { GET, POST } from '../metrics/route';
+import { GET } from '../metrics/route';
 import { NextRequest } from 'next/server';
 
 describe('Metrics API', () => {
@@ -92,62 +90,70 @@ describe('Metrics API', () => {
         },
       ];
 
-      (prisma.healthMetric.findMany as jest.Mock).mockResolvedValue(mockMetrics);
+      (prisma.metric.findMany as jest.Mock).mockResolvedValue(mockMetrics);
 
       const request = new NextRequest('http://localhost:3000/api/metrics');
       const response = await GET(request);
       const data = await response.json();
 
       expect(response.status).toBe(200);
-      expect(data.metrics).toHaveLength(2);
-      expect(data.metrics[0].type).toBe('HRV');
+      expect(data.all).toHaveLength(2);
+      expect(data.latest.HRV).toBeDefined();
     });
 
-    it('should filter metrics by date range', async () => {
+    it('should filter metrics by days parameter', async () => {
       (getServerSession as jest.Mock).mockResolvedValue({
         user: { id: 'user-123' },
       });
 
-      (prisma.healthMetric.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.metric.findMany as jest.Mock).mockResolvedValue([]);
 
-      const request = new NextRequest('http://localhost:3000/api/metrics?startDate=2024-01-01&endDate=2024-01-31', {
-        query: { startDate: '2024-01-01', endDate: '2024-01-31' },
-      } as any);
+      const request = new NextRequest('http://localhost:3000/api/metrics?days=7');
 
       const response = await GET(request);
 
-      expect(prisma.healthMetric.findMany).toHaveBeenCalledWith({
+      expect(prisma.metric.findMany).toHaveBeenCalledWith({
         where: expect.objectContaining({
           userId: 'user-123',
           date: expect.objectContaining({
             gte: expect.any(Date),
-            lte: expect.any(Date),
           }),
         }),
         orderBy: { date: 'desc' },
       });
     });
 
-    it('should filter metrics by type', async () => {
+    it('should return latest metrics grouped by type', async () => {
       (getServerSession as jest.Mock).mockResolvedValue({
         user: { id: 'user-123' },
       });
 
-      (prisma.healthMetric.findMany as jest.Mock).mockResolvedValue([]);
-
-      const request = new NextRequest('http://localhost:3000/api/metrics?type=HRV', {
-        query: { type: 'HRV' },
-      } as any);
-
-      const response = await GET(request);
-
-      expect(prisma.healthMetric.findMany).toHaveBeenCalledWith({
-        where: expect.objectContaining({
+      const mockMetrics = [
+        {
+          id: 'metric-1',
           userId: 'user-123',
           type: 'HRV',
-        }),
-        orderBy: { date: 'desc' },
-      });
+          value: 60,
+          unit: 'ms',
+          date: new Date('2024-01-15'),
+        },
+        {
+          id: 'metric-2',
+          userId: 'user-123',
+          type: 'HRV',
+          value: 65,
+          unit: 'ms',
+          date: new Date('2024-01-14'),
+        },
+      ];
+
+      (prisma.metric.findMany as jest.Mock).mockResolvedValue(mockMetrics);
+
+      const request = new NextRequest('http://localhost:3000/api/metrics');
+      const response = await GET(request);
+      const data = await response.json();
+
+      expect(data.latest.HRV.value).toBe(60); // Latest by order
     });
 
     it('should handle database errors gracefully', async () => {
@@ -155,7 +161,7 @@ describe('Metrics API', () => {
         user: { id: 'user-123' },
       });
 
-      (prisma.healthMetric.findMany as jest.Mock).mockRejectedValue(
+      (prisma.metric.findMany as jest.Mock).mockRejectedValue(
         new Error('Database connection failed')
       );
 
@@ -165,100 +171,6 @@ describe('Metrics API', () => {
 
       expect(response.status).toBe(500);
       expect(data.error).toBeTruthy();
-    });
-  });
-
-  describe('POST /api/metrics', () => {
-    it('should return 401 without authentication', async () => {
-      (getServerSession as jest.Mock).mockResolvedValue(null);
-
-      const request = new NextRequest('http://localhost:3000/api/metrics', {
-        method: 'POST',
-        body: JSON.stringify({ type: 'HRV', value: 60 }),
-      } as any);
-
-      const response = await POST(request);
-      const data = await response.json();
-
-      expect(response.status).toBe(401);
-      expect(data.error).toBe('Unauthorized');
-    });
-
-    it('should create a new metric', async () => {
-      (getServerSession as jest.Mock).mockResolvedValue({
-        user: { id: 'user-123' },
-      });
-
-      const newMetric = {
-        id: 'metric-new',
-        userId: 'user-123',
-        type: 'HRV',
-        value: 65,
-        unit: 'ms',
-        date: new Date(),
-        createdAt: new Date(),
-      };
-
-      (prisma.healthMetric.create as jest.Mock).mockResolvedValue(newMetric);
-
-      const request = new NextRequest('http://localhost:3000/api/metrics', {
-        method: 'POST',
-        body: { type: 'HRV', value: 65, unit: 'ms', date: new Date().toISOString() },
-      } as any);
-
-      const response = await POST(request);
-      const data = await response.json();
-
-      expect(response.status).toBe(201);
-      expect(data.metric.type).toBe('HRV');
-      expect(data.metric.value).toBe(65);
-    });
-
-    it('should validate required fields', async () => {
-      (getServerSession as jest.Mock).mockResolvedValue({
-        user: { id: 'user-123' },
-      });
-
-      const request = new NextRequest('http://localhost:3000/api/metrics', {
-        method: 'POST',
-        body: { value: 60 }, // Missing 'type'
-      } as any);
-
-      const response = await POST(request);
-      const data = await response.json();
-
-      expect(response.status).toBe(400);
-      expect(data.error).toBeTruthy();
-    });
-
-    it('should handle bulk metric creation', async () => {
-      (getServerSession as jest.Mock).mockResolvedValue({
-        user: { id: 'user-123' },
-      });
-
-      const metrics = [
-        { id: '1', type: 'HRV', value: 60, date: new Date() },
-        { id: '2', type: 'RESTING_HR', value: 52, date: new Date() },
-      ];
-
-      (prisma.healthMetric.create as jest.Mock)
-        .mockResolvedValueOnce(metrics[0])
-        .mockResolvedValueOnce(metrics[1]);
-
-      const request = new NextRequest('http://localhost:3000/api/metrics', {
-        method: 'POST',
-        body: {
-          metrics: [
-            { type: 'HRV', value: 60 },
-            { type: 'RESTING_HR', value: 52 },
-          ],
-        },
-      } as any);
-
-      const response = await POST(request);
-
-      // Should handle bulk creation
-      expect(response.status).toBeLessThan(500);
     });
   });
 });

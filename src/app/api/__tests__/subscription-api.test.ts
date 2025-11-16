@@ -30,17 +30,27 @@ jest.mock('@/lib/prisma', () => ({
     user: {
       findUnique: jest.fn(),
     },
+    trainingPlan: {
+      count: jest.fn(),
+    },
   },
 }));
 
 // Mock subscription limits
 jest.mock('@/lib/subscription-limits', () => ({
   getFeatureAvailability: jest.fn().mockReturnValue({
-    canSync: true,
-    canUseAI: true,
-    maxPlans: 10,
+    tier: 'FREE',
+    tierName: 'Free',
+    price: '$0',
+    features: [],
+    limits: {
+      analysisDays: 7,
+      garminSyncsPerMonth: 5,
+      maxActivePlans: 1,
+      aiChatEnabled: false,
+    },
   }),
-  formatUsageMessage: jest.fn().mockReturnValue(''),
+  formatUsageMessage: jest.fn().mockReturnValue('0 of 5 syncs used this month (5 remaining)'),
 }));
 
 import { getServerSession } from 'next-auth';
@@ -77,8 +87,11 @@ describe('Subscription API', () => {
         userId: 'user-123',
         tier: 'FREE',
         status: 'ACTIVE',
+        garminSyncsThisMonth: 0,
         createdAt: new Date(),
       });
+
+      (prisma.trainingPlan.count as jest.Mock).mockResolvedValue(0);
 
       const request = {} as any;
       const response = await GET(request);
@@ -86,6 +99,7 @@ describe('Subscription API', () => {
 
       expect(response.status).toBe(200);
       expect(data.subscription.tier).toBe('FREE');
+      expect(data.usage).toBeDefined();
     });
 
     it('should return premium subscription', async () => {
@@ -102,9 +116,11 @@ describe('Subscription API', () => {
         stripeSubscriptionId: 'sub_123',
         currentPeriodStart: new Date(),
         currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        garminSyncsThisMonth: 10,
       };
 
       (prisma.subscription.findUnique as jest.Mock).mockResolvedValue(mockSubscription);
+      (prisma.trainingPlan.count as jest.Mock).mockResolvedValue(2);
 
       const request = {} as any;
       const response = await GET(request);
@@ -113,6 +129,7 @@ describe('Subscription API', () => {
       expect(response.status).toBe(200);
       expect(data.subscription.tier).toBe('PREMIUM');
       expect(data.subscription.status).toBe('ACTIVE');
+      expect(data.features).toBeDefined();
     });
 
     it('should return team subscription with limits', async () => {
@@ -129,9 +146,11 @@ describe('Subscription API', () => {
         stripeSubscriptionId: 'sub_123',
         currentPeriodStart: new Date(),
         currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        garminSyncsThisMonth: 25,
       };
 
       (prisma.subscription.findUnique as jest.Mock).mockResolvedValue(mockSubscription);
+      (prisma.trainingPlan.count as jest.Mock).mockResolvedValue(5);
 
       const request = {} as any;
       const response = await GET(request);
@@ -139,7 +158,8 @@ describe('Subscription API', () => {
 
       expect(response.status).toBe(200);
       expect(data.subscription.tier).toBe('TEAM');
-      expect(data.limits).toBeDefined();
+      expect(data.features).toBeDefined();
+      expect(data.usage.activePlans.count).toBe(5);
     });
 
     it('should handle canceled subscription', async () => {
@@ -154,9 +174,11 @@ describe('Subscription API', () => {
         status: 'CANCELED',
         stripeCustomerId: 'cus_123',
         cancelAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+        garminSyncsThisMonth: 3,
       };
 
       (prisma.subscription.findUnique as jest.Mock).mockResolvedValue(mockSubscription);
+      (prisma.trainingPlan.count as jest.Mock).mockResolvedValue(1);
 
       const request = {} as any;
       const response = await GET(request);
