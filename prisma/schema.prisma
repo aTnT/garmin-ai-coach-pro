@@ -36,6 +36,7 @@ model User {
   coaching      TeamMembership[] @relation("CoachMemberships")
   athletes      TeamMembership[] @relation("AthleteMemberships")
   sentInvites   TeamInvite[]     @relation("CoachInvites")
+  races         Race[]
 }
 
 // Training Metrics
@@ -97,6 +98,30 @@ model TrainingPlan {
   user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   workouts    Workout[]
   adaptations PlanAdaptation[]
+}
+
+// Races
+model Race {
+  id           String       @id @default(cuid())
+  userId       String
+  name         String
+  date         DateTime
+  sport        Sport
+  distance     RaceDistance
+  customDistance Float?     // km for CUSTOM races
+  priority     RacePriority @default(B)
+  location     String?
+  notes        String?      @db.Text
+  goalTime     String?      // e.g., "3:30:00"
+  resultTime   String?      // Actual finish time
+  completed    Boolean      @default(false)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+  @@index([userId, priority, date])
 }
 
 // Plan Adaptations (automatic adjustments based on readiness/performance)
@@ -418,4 +443,23 @@ enum NotificationPriority {
   MEDIUM
   HIGH
   URGENT
+}
+
+enum RacePriority {
+  A  // Goal race - peak for this
+  B  // Important but not peak
+  C  // Training race or fun
+}
+
+enum RaceDistance {
+  FIVE_K
+  TEN_K
+  HALF_MARATHON
+  MARATHON
+  ULTRA
+  SPRINT
+  OLYMPIC
+  HALF_IM
+  IRONMAN
+  CUSTOM
 }
